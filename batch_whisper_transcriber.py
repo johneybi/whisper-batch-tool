@@ -1,6 +1,6 @@
 # batch_whisper_transcriber.py
 # Whisper 오디오/비디오 배치 전사 도구
-# https://github.com/YOUR_USERNAME/whisper-batch-tool
+# https://github.com/johneybi/whisper-batch-tool
 
 import os
 import re
@@ -157,29 +157,107 @@ class BatchWhisperTranscriber:
                 print("❌ 1 또는 2를 입력하세요.")
 
     def find_target_files(self, extension):
-        """현재 디렉토리에서 대상 파일 찾기"""
-        files = list(self.script_dir.glob(f"*{extension}"))
-        
+        """파일 선택 대화창으로 대상 파일 찾기"""
         ext_upper = extension[1:].upper()
-        print(f"\n📹 {ext_upper} 파일 검색 결과:")
-        print("-" * 50)
+        
+        print(f"\n📂 {ext_upper} 파일 선택 방법:")
+        print("  1: 📁 파일 탐색기에서 선택 (추천)")
+        print("  2: 📋 폴더 경로 직접 입력")
+        print(f"  3: 📂 현재 폴더에서 자동 검색")
+        
+        while True:
+            choice = input("선택 (기본 1): ").strip()
+            if choice == "" or choice == "1":
+                files = self._select_files_dialog(extension, ext_upper)
+                break
+            elif choice == "2":
+                files = self._select_files_by_path(extension, ext_upper)
+                break
+            elif choice == "3":
+                files = self._select_files_local(extension, ext_upper)
+                break
+            else:
+                print("❌ 1, 2, 3 중 하나를 입력하세요.")
         
         if not files:
-            print(f"❌ 현재 디렉토리에 {ext_upper} 파일이 없습니다.")
-            print(f"📂 현재 위치: {self.script_dir}")
-            print(f"\n💡 {ext_upper} 파일을 이 폴더에 넣고 다시 실행하세요.")
-            input("\nEnter를 눌러 종료...")
             return []
         
+        # 선택된 파일 목록 출력
+        print(f"\n📹 선택된 {ext_upper} 파일:")
+        print("-" * 50)
         total_size = 0
         for i, file in enumerate(files, 1):
             size_mb = file.stat().st_size / (1024 * 1024)
             total_size += size_mb
             print(f"  {i:2d}: {file.name} ({size_mb:.1f}MB)")
-        
+            print(f"      📂 {file.parent}")
         print("-" * 50)
         print(f"📊 총 {len(files)}개 파일, {total_size:.1f}MB")
         
+        return files
+    
+    def _select_files_dialog(self, extension, ext_upper):
+        """파일 탐색기 대화창으로 선택"""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            root = tk.Tk()
+            root.withdraw()  # 메인 창 숨기기
+            root.attributes('-topmost', True)  # 최상위로
+            
+            print("\n📁 파일 선택 창이 열립니다... (작업 표시줄을 확인하세요)")
+            
+            filetypes = [
+                (f"{ext_upper} 파일", f"*{extension}"),
+                ("모든 파일", "*.*")
+            ]
+            
+            file_paths = filedialog.askopenfilenames(
+                title=f"전사할 {ext_upper} 파일을 선택하세요 (여러 개 선택 가능)",
+                filetypes=filetypes
+            )
+            
+            root.destroy()
+            
+            if not file_paths:
+                print("❌ 파일이 선택되지 않았습니다.")
+                return []
+            
+            return [Path(f) for f in file_paths]
+            
+        except ImportError:
+            print("⚠️  파일 탐색기를 열 수 없습니다. 경로 입력 방식으로 전환합니다.")
+            return self._select_files_by_path(extension, ext_upper)
+    
+    def _select_files_by_path(self, extension, ext_upper):
+        """폴더 경로를 직접 입력하여 선택"""
+        print(f"\n📋 {ext_upper} 파일이 있는 폴더 경로를 입력하세요:")
+        folder_path = input("경로: ").strip().strip('"')  # 따옴표 제거
+        
+        if not folder_path:
+            print("❌ 경로가 입력되지 않았습니다.")
+            return []
+        
+        folder = Path(folder_path)
+        if not folder.exists():
+            print(f"❌ 폴더를 찾을 수 없습니다: {folder}")
+            return []
+        
+        files = list(folder.glob(f"*{extension}"))
+        if not files:
+            print(f"❌ {folder}에 {ext_upper} 파일이 없습니다.")
+            return []
+        
+        return files
+    
+    def _select_files_local(self, extension, ext_upper):
+        """현재 디렉토리에서 자동 검색"""
+        files = list(self.script_dir.glob(f"*{extension}"))
+        if not files:
+            print(f"❌ 현재 디렉토리에 {ext_upper} 파일이 없습니다.")
+            print(f"📂 현재 위치: {self.script_dir}")
+            return []
         return files
     
     def check_ffmpeg(self):
@@ -358,6 +436,7 @@ class BatchWhisperTranscriber:
         start_time = time.time()
         success_count = 0
         total_files = len(target_files)
+        processed_files = []
         
         for i, file in enumerate(target_files, 1):
             print(f"\n📂 [{i}/{total_files}] {file.name}")
@@ -385,6 +464,7 @@ class BatchWhisperTranscriber:
                 txt_file = self.transcribe_audio(wav_file, model_name)
                 if txt_file:
                     success_count += 1
+                    processed_files.append(txt_file)
                     
                     # MKV에서 추출한 임시 WAV 파일 정리
                     if is_temp_wav:
@@ -405,24 +485,23 @@ class BatchWhisperTranscriber:
         
         # 결과 요약
         total_time = time.time() - start_time
-        self.print_summary(success_count, total_files, total_time)
+        self.print_summary(success_count, total_files, total_time, processed_files)
     
-    def print_summary(self, success, total, elapsed):
+    def print_summary(self, success, total, elapsed, processed_files=None):
         """결과 요약 출력"""
         print(f"\n" + "=" * 60)
         print(f"📊 처리 완료 요약")
         print("=" * 60)
         print(f"✅ 성공: {success}/{total}개 파일")
         print(f"⏱️  총 소요시간: {elapsed/60:.1f}분")
-        print(f"📁 결과 위치: {self.script_dir}")
         
-        # 생성된 TXT 파일 목록
-        txt_files = list(self.script_dir.glob("*.txt"))
-        if txt_files:
+        if processed_files:
             print(f"\n📝 생성된 전사 파일:")
-            for txt_file in sorted(txt_files):
-                size_kb = txt_file.stat().st_size / 1024
-                print(f"  📄 {txt_file.name} ({size_kb:.1f}KB)")
+            for txt_file in processed_files:
+                if txt_file and txt_file.exists():
+                    size_kb = txt_file.stat().st_size / 1024
+                    print(f"  📄 {txt_file.name} ({size_kb:.1f}KB)")
+                    print(f"     📂 {txt_file.parent}")
 
 def main():
     try:
