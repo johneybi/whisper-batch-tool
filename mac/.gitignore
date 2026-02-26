@@ -1,0 +1,21 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+
+# Audio/Video files (사용자 파일은 업로드하지 않음)
+*.mkv
+*.wav
+*.mp3
+*.mp4
+*.avi
+
+# Transcription output
+*.txt
+!README.md
+
+# OS files
+Thumbs.db
+.DS_Store
