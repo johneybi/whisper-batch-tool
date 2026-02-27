@@ -70,6 +70,22 @@ OpenAI Whisper를 사용하여 한국어 음성을 인식합니다.
 | medium | 느림      | 매우 높음 | ~769MB  | 정확도 중시   |
 | large  | 매우 느림 | 최고      | ~1550MB | 최고 품질     |
 
+## 🛠️ Mac 설치파일(.pkg) 빌드 방법 (개발자용)
+
+Mac 환경에서 직접 배포용 `.pkg` 설치 파일을 빌드하려면, `whisper-batch-tool/mac` 폴더 내의 스크립트를 사용합니다. (`pkgbuild` 도구는 Mac에 기본 내장되어 있습니다.)
+
+1. 터미널을 열고 `whisper-batch-tool/mac` 폴더로 이동합니다.
+2. 빌드 스크립트에 실행 권한을 부여합니다.
+   ```bash
+   chmod +x build_installer.sh
+   ```
+3. 빌드 스크립트를 실행합니다.
+   ```bash
+   ./build_installer.sh
+   ```
+4. 빌드가 성공적으로 완료되면 해당 폴더의 `installer_output/` 디렉토리 내부에 `WhisperBatchTool_1.0.0.pkg` 파일이 생성됩니다.
+5. 생성된 `.pkg` 파일을 사용자에게 배포하시면 됩니다.
+
 ## ❓ 문제 해결
 
 | 증상                        | 해결 방법                       |
