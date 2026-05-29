@@ -4,6 +4,13 @@ __pycache__/
 
 # Virtual environment
 venv/
+.release-venv/
+
+# Build artifacts
+build/
+dist/
+release/
+*.spec.bak
 
 # Audio/Video files (사용자 파일은 업로드하지 않음)
 *.mkv

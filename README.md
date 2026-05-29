@@ -1,101 +1,144 @@
-# 🎬 Whisper 배치 전사 도구
+# Whisper Batch Transcriber
 
-오디오/비디오 파일을 자동으로 텍스트로 변환하는 도구입니다.  
-OpenAI Whisper를 사용하여 한국어 음성을 인식합니다.
+Whisper 기반 오디오/비디오 배치 전사 GUI 앱입니다. 목표는 최종 사용자가 Python, pip, ffmpeg를 직접 설치하지 않고도 배포 파일을 받아 실행하게 만드는 것입니다.
 
-## ✨ 주요 기능
+## 최종 사용자에게 배포할 파일
 
-- **배치 처리**: 폴더 안의 MKV/WAV 파일을 한 번에 전사
-- **모델 선택**: tiny ~ large 모델 중 선택 (속도 vs 품질)
-- **자동 반복 제거**: Whisper 환각(hallucination) 현상 자동 필터링
-- **시간별 세그먼트**: 전사 결과에 타임스탬프 포함
+배포자는 OS별로 빌드한 뒤 `release/` 폴더의 파일을 전달합니다.
 
-## 📦 설치 방법
+- Windows: `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
+- Windows 대체 배포: `WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
+- macOS: `WhisperBatchTranscriber-1.1.0-macOS.dmg`
+- macOS 대체 배포: `WhisperBatchTranscriber-1.1.0-macOS.zip`
 
-### 사전 요구사항
+최종 사용자는 위 파일만 받으면 됩니다. Python과 ffmpeg를 따로 설치하지 않아도 됩니다. Whisper 모델은 첫 사용 시 선택한 모델을 자동 다운로드하므로 인터넷 연결이 필요할 수 있습니다.
 
-- **Windows 10/11**
-- **Python 3.8 이상** — [다운로드](https://www.python.org/downloads/)
-  - ⚠️ 설치 시 **"Add Python to PATH"** 반드시 체크!
-- **ffmpeg** (MKV 파일 처리 시 필요)
-  - Windows 11: 터미널에서 `winget install ffmpeg`
-  - 또는 [ffmpeg.org](https://ffmpeg.org/download.html)에서 다운로드
+## 최종 사용자 사용법
 
-### 설치
+Windows 설치 파일:
 
-1. 이 저장소를 다운로드합니다 (Code → Download ZIP)
-2. 압축을 풀고 폴더로 이동합니다
-3. **`install.bat`을 더블클릭**합니다
-4. 자동으로 가상환경 생성 + 패키지 설치가 진행됩니다
+1. `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`를 실행합니다.
+2. 시작 메뉴 또는 바탕화면 바로가기로 앱을 실행합니다.
+3. `Add Files` 또는 `Add Folder`로 파일을 추가하고 `Start`를 누릅니다.
 
-> 💡 첫 설치 시 PyTorch 등 대용량 패키지 다운로드로 시간이 걸릴 수 있습니다.
+Windows ZIP:
 
-## 🚀 사용 방법
+1. ZIP을 압축 해제합니다.
+2. `WhisperBatchTranscriber.exe`를 실행합니다.
 
-1. **이 폴더에 MKV 또는 WAV 파일**을 넣습니다
-2. **`run.bat`을 더블클릭**합니다
-3. 안내에 따라 옵션을 선택합니다:
-   - 파일 형식 (MKV / WAV)
-   - Whisper 모델 (tiny=빠름, large=정확)
-   - 처리 모드 (자동 / 수동)
-4. 전사가 완료되면 **같은 폴더에 `.txt` 파일**이 생성됩니다
+배포 검증용으로는 다음 명령을 실행할 수 있습니다. 종료 코드가 `0`이면 앱 번들이 ffmpeg 런타임을 정상적으로 찾은 것입니다.
 
-## 📝 출력 형식
-
-```
-# Whisper 전사 결과
-# 원본 파일: example.mkv
-# 모델: base
-# 전사 시간: 2026-02-24 17:43:18
-# 처리 시간: 106.7초
-
-## 📝 전체 텍스트
-
-(전체 전사 내용)
-
-## ⏱️ 시간별 세그먼트
-
-[00:00-00:14] 첫 번째 문장입니다
-[00:14-00:24] 두 번째 문장입니다
-...
+```bat
+WhisperBatchTranscriber.exe --self-test
 ```
 
-## 🤖 모델 비교
+macOS DMG:
 
-| 모델   | 속도      | 품질      | 크기    | 추천 용도     |
-| ------ | --------- | --------- | ------- | ------------- |
-| tiny   | 매우 빠름 | 낮음      | ~39MB   | 빠른 테스트   |
-| base   | 빠름      | 보통      | ~74MB   | 일반 회의     |
-| small  | 보통      | 높음      | ~244MB  | **일반 추천** |
-| medium | 느림      | 매우 높음 | ~769MB  | 정확도 중시   |
-| large  | 매우 느림 | 최고      | ~1550MB | 최고 품질     |
+1. DMG를 열고 앱을 Applications 폴더로 옮깁니다.
+2. `Whisper Batch Transcriber` 앱을 실행합니다.
 
-## 🛠️ Mac 설치파일(.pkg) 빌드 방법 (개발자용)
+## 지원 입력 포맷
 
-Mac 환경에서 직접 배포용 `.pkg` 설치 파일을 빌드하려면, `whisper-batch-tool/mac` 폴더 내의 스크립트를 사용합니다. (`pkgbuild` 도구는 Mac에 기본 내장되어 있습니다.)
+앱은 ffmpeg 런타임을 번들에 포함하거나 자동 준비하도록 구성되어 있습니다. 대표적으로 다음 파일을 처리할 수 있습니다.
 
-1. 터미널을 열고 `whisper-batch-tool/mac` 폴더로 이동합니다.
-2. 빌드 스크립트에 실행 권한을 부여합니다.
-   ```bash
-   chmod +x build_installer.sh
-   ```
-3. 빌드 스크립트를 실행합니다.
-   ```bash
-   ./build_installer.sh
-   ```
-4. 빌드가 성공적으로 완료되면 해당 폴더의 `installer_output/` 디렉토리 내부에 `WhisperBatchTool_1.0.0.pkg` 파일이 생성됩니다.
-5. 생성된 `.pkg` 파일을 사용자에게 배포하시면 됩니다.
+- 오디오: `mp3`, `wav`, `m4a`, `flac`, `aac`, `ogg`, `opus`, `wma`, `aiff`, `alac`, `amr`
+- 비디오: `mp4`, `mov`, `mkv`, `webm`, `avi`, `wmv`, `m4v`, `flv`, `mpeg`, `mpg`, `m2ts`, `mts`, `ts`
 
-## ❓ 문제 해결
+목록에 없는 확장자도 ffmpeg가 읽을 수 있으면 처리 시도합니다.
 
-| 증상                        | 해결 방법                       |
-| --------------------------- | ------------------------------- |
-| `python을 찾을 수 없습니다` | Python 설치 후 PATH에 추가      |
-| `ffmpeg를 찾을 수 없습니다` | ffmpeg 설치 필요 (위 안내 참고) |
-| 전사가 너무 느립니다        | 더 작은 모델 선택 (tiny, base)  |
-| GPU를 사용하고 싶습니다     | CUDA 지원 PyTorch 설치 필요     |
+## 출력 포맷
 
-## 📄 라이선스
+- `TXT`: 전체 텍스트와 시간대별 세그먼트
+- `SRT`: 일반 자막
+- `VTT`: 웹 자막
+- `JSON`: Whisper 원본 결과에 가까운 구조화 데이터
+- `TSV`: 세그먼트 표 데이터
 
-이 프로젝트는 MIT 라이선스로 배포됩니다.  
-[OpenAI Whisper](https://github.com/openai/whisper) 라이선스를 확인해주세요.
+## 배포자 빌드 방법
+
+빌드는 OS별 네이티브 환경에서 진행합니다. Windows 앱은 Windows에서, macOS 앱은 macOS에서 빌드하는 방식이 가장 안정적입니다.
+
+GitHub 저장소에서 배포한다면 Actions 탭의 `Build distributable apps` 워크플로를 수동 실행하거나 `v*` 태그를 푸시하면 Windows와 macOS 산출물을 자동으로 만들 수 있습니다.
+
+릴리스 빌드는 개발용 `venv`와 분리된 `.release-venv`를 사용합니다. 깨끗한 환경에서 다시 만들려면 `WHISPER_CLEAN_RELEASE_VENV=1`을 지정합니다.
+
+### Windows 릴리스 빌드
+
+필요 도구:
+
+- Python 3.10 이상
+- 선택 사항: Inno Setup, 설치형 `.exe` 생성용
+
+빌드:
+
+```bat
+build_windows.bat
+```
+
+Windows 배포 빌드는 기본적으로 CPU 전용 Torch를 포함합니다. 대부분의 사용자에게 가장 호환성이 좋습니다.
+
+NVIDIA CUDA용 빌드를 따로 만들려면 다음처럼 실행합니다.
+
+```bat
+set WHISPER_RELEASE_TORCH=cuda
+build_windows.bat
+```
+
+결과:
+
+- 항상 생성: `release/WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
+- Inno Setup이 있으면 추가 생성: `release/WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
+
+Windows ZIP을 배포하기 전에 다음 검증을 실행합니다. ZIP을 임시 폴더에 풀고, 시스템 ffmpeg가 없는 PATH에서 앱 self-test를 통과해야 성공합니다.
+
+```bat
+powershell -ExecutionPolicy Bypass -File scripts\verify_release_windows.ps1
+```
+
+### macOS 릴리스 빌드
+
+필요 도구:
+
+- Python 3.10 이상
+- macOS 기본 `hdiutil`
+
+빌드:
+
+```bash
+chmod +x build_macos.sh scripts/build_release_macos.sh
+./build_macos.sh
+```
+
+결과:
+
+- `release/WhisperBatchTranscriber-1.1.0-macOS.dmg`
+- `release/WhisperBatchTranscriber-1.1.0-macOS.zip`
+
+## 개발자 직접 실행
+
+배포 파일을 만들지 않고 개발 환경에서 직접 실행할 때만 사용합니다.
+
+Windows:
+
+```bat
+install_gui.bat
+run_gui.bat
+```
+
+macOS:
+
+```bash
+chmod +x install_gui.sh run_gui.sh
+./install_gui.sh
+./run_gui.sh
+```
+
+## 주요 파일
+
+- `whisper_gui.py`: GUI 진입점
+- `transcriber_core.py`: 전사 코어, 출력 생성, ffmpeg 런타임 준비
+- `WhisperBatchTranscriber.spec`: PyInstaller 앱 번들 설정
+- `scripts/build_release_windows.ps1`: Windows 릴리스 빌드
+- `scripts/verify_release_windows.ps1`: Windows ZIP 배포물 검증
+- `scripts/build_release_macos.sh`: macOS 릴리스 빌드
+- `packaging/windows_installer.iss`: Windows 설치 프로그램 설정
