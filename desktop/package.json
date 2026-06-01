@@ -1,0 +1,25 @@
+{
+  "name": "whisper-batch-transcriber-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron/React prototype UI for Whisper Batch Transcriber.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
+    "electron": "^39.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "devDependencies": {}
+}

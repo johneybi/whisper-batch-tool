@@ -133,10 +133,32 @@ chmod +x install_gui.sh run_gui.sh
 ./run_gui.sh
 ```
 
+### Electron/React 프로토타입
+
+레퍼런스 이미지에 가까운 새 데스크톱 UI는 기존 Python 전사 코어를 그대로 사용하면서 `desktop/` 아래 Electron/React 앱으로 분리해 두었습니다. 아직 릴리스 패키징 대상은 아니며, 디자인과 UX를 검증하기 위한 프로토타입입니다.
+
+```bash
+cd desktop
+npm install
+npm run dev
+```
+
+프로토타입은 루트의 `.release-venv` Python을 우선 사용합니다. 다른 Python 실행 파일을 쓰려면 `WHISPER_PYTHON` 환경 변수에 경로를 지정합니다.
+
+## 개발자 검증
+
+모델 다운로드나 ffmpeg 없이 코어 출력 로직을 빠르게 확인할 수 있습니다.
+
+```bash
+python3 -m unittest discover -s tests
+```
+
 ## 주요 파일
 
 - `whisper_gui.py`: GUI 진입점
 - `transcriber_core.py`: 전사 코어, 출력 생성, ffmpeg 런타임 준비
+- `requirements.txt`: GUI 앱 런타임 Python 의존성
+- `tests/`: 모델 다운로드 없이 실행 가능한 코어 회귀 테스트
 - `WhisperBatchTranscriber.spec`: PyInstaller 앱 번들 설정
 - `scripts/build_release_windows.ps1`: Windows 릴리스 빌드
 - `scripts/verify_release_windows.ps1`: Windows ZIP 배포물 검증

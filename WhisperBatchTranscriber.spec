@@ -70,5 +70,6 @@ if sys.platform == "darwin":
             "CFBundleShortVersionString": "1.1.0",
             "CFBundleVersion": "1.1.0",
             "NSHighResolutionCapable": "True",
+            "NSRequiresAquaSystemAppearance": True,
         },
     )
