@@ -4,14 +4,14 @@ Whisper 기반 오디오/비디오 배치 전사 GUI 앱입니다. 목표는 최
 
 ## 최종 사용자에게 배포할 파일
 
-배포자는 OS별로 빌드한 뒤 `release/` 폴더의 파일을 전달합니다.
+최종 사용자는 GitHub의 Releases 페이지에서 본인 OS에 맞는 파일을 다운로드하면 됩니다. 배포자는 OS별로 빌드한 뒤 `release/` 폴더의 산출물을 GitHub Release에 첨부합니다.
 
 - Windows: `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
 - Windows 대체 배포: `WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
 - macOS: `WhisperBatchTranscriber-1.1.0-macOS.dmg`
 - macOS 대체 배포: `WhisperBatchTranscriber-1.1.0-macOS.zip`
 
-최종 사용자는 위 파일만 받으면 됩니다. Python과 ffmpeg를 따로 설치하지 않아도 됩니다. Whisper 모델은 첫 사용 시 선택한 모델을 자동 다운로드하므로 인터넷 연결이 필요할 수 있습니다.
+릴리스에 첨부된 파일만 받으면 됩니다. Python과 ffmpeg를 따로 설치하지 않아도 됩니다. Whisper 모델은 첫 사용 시 선택한 모델을 자동 다운로드하므로 인터넷 연결이 필요할 수 있습니다.
 
 ## 최종 사용자 사용법
 
@@ -36,6 +36,8 @@ macOS DMG:
 
 1. DMG를 열고 앱을 Applications 폴더로 옮깁니다.
 2. `Whisper Batch Transcriber` 앱을 실행합니다.
+
+macOS에서 "확인되지 않은 개발자" 경고가 나올 수 있습니다. 현재 배포물은 Apple Developer ID 서명/공증을 거치지 않은 빌드이므로, 처음 실행할 때는 Finder에서 앱을 Control-클릭한 뒤 `열기`를 선택해야 할 수 있습니다.
 
 ## 지원 입력 포맷
 
