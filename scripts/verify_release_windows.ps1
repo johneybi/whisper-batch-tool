@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
-$Version = "1.1.0"
+$Version = "1.1.3"
 $ZipPath = Join-Path $ProjectRoot "release\WhisperBatchTranscriber-$Version-Windows-x64.zip"
 
 if (-not (Test-Path $ZipPath)) {

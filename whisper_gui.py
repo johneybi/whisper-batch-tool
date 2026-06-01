@@ -11,7 +11,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import BooleanVar, StringVar, Tk, filedialog, messagebox
 
-from app_info import APP_DISPLAY_NAME, APP_VERSION
+from app_info import APP_DISPLAY_NAME, APP_NAME, APP_VERSION
 from transcriber_core import (
     MODEL_NAMES,
     OUTPUT_FORMATS,
@@ -19,6 +19,7 @@ from transcriber_core import (
     WhisperBatchEngine,
     check_ffmpeg,
     discover_media_files,
+    ensure_standard_streams,
     supported_filetype_patterns,
 )
 
@@ -36,6 +37,48 @@ SOFT_BLUE_BG = "#eaf2ff"
 ROW_ALT = "#f9fafb"
 WARNING = "#f59e0b"
 ERROR = "#dc2626"
+
+
+def app_data_dir() -> Path:
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / APP_NAME
+
+
+def diagnostic_log_path() -> Path:
+    return app_data_dir() / "logs" / "app.log"
+
+
+def write_diagnostic(message: str) -> None:
+    try:
+        path = diagnostic_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with path.open("a", encoding="utf-8", errors="replace") as handle:
+            handle.write(f"{timestamp} {message}\n")
+    except Exception:
+        return
+
+
+def install_exception_hooks(root: Tk) -> None:
+    def log_exception(exc_type, exc_value, exc_traceback) -> None:
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        write_diagnostic(f"Unhandled exception:\n{details}")
+
+    def log_thread_exception(args: threading.ExceptHookArgs) -> None:
+        log_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
+    def log_tk_exception(exc_type, exc_value, exc_traceback) -> None:
+        log_exception(exc_type, exc_value, exc_traceback)
+        messagebox.showerror("Application error", str(exc_value))
+
+    sys.excepthook = log_exception
+    threading.excepthook = log_thread_exception
+    root.report_callback_exception = log_tk_exception  # type: ignore[method-assign]
 
 
 def configure_app_style(root: Tk) -> None:
@@ -60,6 +103,8 @@ class ProgressMeter:
     def __init__(self, parent: tk.Widget, height: int = 16):
         self.maximum = 1
         self.value = 0
+        self.active = False
+        self.phase = 0
         self.canvas = tk.Canvas(parent, height=height, bg="#e5e7eb", highlightthickness=0)
         self.canvas.bind("<Configure>", lambda _event: self._draw())
 
@@ -73,6 +118,24 @@ class ProgressMeter:
             self.value = max(0, min(value, self.maximum))
         self._draw()
 
+    def start_activity(self) -> None:
+        if self.active:
+            return
+        self.active = True
+        self.phase = 0
+        self._tick()
+
+    def stop_activity(self) -> None:
+        self.active = False
+        self._draw()
+
+    def _tick(self) -> None:
+        if not self.active:
+            return
+        self.phase = (self.phase + 8) % 1000
+        self._draw()
+        self.canvas.after(80, self._tick)
+
     def _draw(self) -> None:
         self.canvas.delete("all")
         width = max(self.canvas.winfo_width(), 1)
@@ -81,6 +144,14 @@ class ProgressMeter:
         self.canvas.create_rectangle(0, 0, width, height, fill="#e5e7eb", width=0)
         if fill_width:
             self.canvas.create_rectangle(0, 0, fill_width, height, fill=BLUE, width=0)
+        if self.active and self.value < self.maximum:
+            remaining_start = fill_width
+            remaining_width = max(width - remaining_start, 1)
+            segment_width = max(int(remaining_width * 0.28), 42)
+            travel = max(remaining_width + segment_width, 1)
+            x1 = remaining_start + (self.phase % travel) - segment_width
+            x2 = x1 + segment_width
+            self.canvas.create_rectangle(max(remaining_start, x1), 0, min(width, x2), height, fill=BLUE, width=0)
         if self.maximum > 1:
             percent = int((self.value / self.maximum) * 100)
             self.canvas.create_text(width / 2, height / 2, text=f"{percent}%", fill="#ffffff", font=("Arial", 10, "bold"))
@@ -182,6 +253,7 @@ class WhisperBatchGui:
         self.cancel_requested = threading.Event()
         self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self.results: list[Path] = []
+        self.current_file_index = -1
 
         self.model_var = StringVar(value="small")
         self.language_var = StringVar(value="ko")
@@ -195,8 +267,10 @@ class WhisperBatchGui:
         self.format_vars = {name: BooleanVar(value=name in {"txt", "srt"}) for name in OUTPUT_FORMATS}
 
         self._build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(100, self._start_environment_check)
         self.root.after(100, self._drain_messages)
+        write_diagnostic(f"{APP_DISPLAY_NAME} {APP_VERSION} started")
 
     def _card(self, parent: tk.Widget, title: str | None = None) -> tk.Frame:
         outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
@@ -230,6 +304,19 @@ class WhisperBatchGui:
             **kwargs,
         )
         return button
+
+    def _on_close(self) -> None:
+        if self.worker and self.worker.is_alive():
+            if not messagebox.askyesno(
+                "Transcription running",
+                "A transcription job is still running. Close the app and stop the job?",
+            ):
+                return
+            self.cancel_requested.set()
+            write_diagnostic("Window close confirmed while transcription was running")
+        else:
+            write_diagnostic("Window closed")
+        self.root.destroy()
 
     def _section_label(self, parent: tk.Widget, text: str, row: int, column: int = 0) -> None:
         TextLabel(parent, text=text, bg=CARD_BG, fg=TEXT, font=("Arial", 12, "bold"), height=24).grid(
@@ -388,21 +475,39 @@ class WhisperBatchGui:
         top.columnconfigure(0, weight=1)
         self.current_file_label = TextLabel(top, text="Current file: none", bg=CARD_BG, fg=TEXT, height=24)
         self.current_file_label.grid(row=0, column=0, sticky="w")
-        self.total_progress_label = TextLabel(
+        self.current_progress_label = TextLabel(
             top,
-            text="Overall: 0 / 0",
+            text="Current: 0%",
             bg=CARD_BG,
             fg=TEXT,
             height=24,
             width=140,
             anchor="e",
         )
+        self.current_progress_label.grid(row=0, column=1, sticky="e")
+
+        self.current_progress = ProgressMeter(card, height=18)
+        self.current_progress.grid(row=2, column=0, sticky="ew", pady=(8, 12))
+
+        overall = tk.Frame(card, bg=CARD_BG)
+        overall.grid(row=3, column=0, sticky="ew")
+        overall.columnconfigure(0, weight=1)
+        TextLabel(overall, text="Overall progress", bg=CARD_BG, fg=TEXT, height=24).grid(row=0, column=0, sticky="w")
+        self.total_progress_label = TextLabel(
+            overall,
+            text="Overall: 0 / 0 (0%)",
+            bg=CARD_BG,
+            fg=TEXT,
+            height=24,
+            width=180,
+            anchor="e",
+        )
         self.total_progress_label.grid(row=0, column=1, sticky="e")
 
         self.progress = ProgressMeter(card, height=18)
-        self.progress.grid(row=2, column=0, sticky="ew", pady=(10, 10))
+        self.progress.grid(row=4, column=0, sticky="ew", pady=(8, 10))
         bottom = tk.Frame(card, bg=CARD_BG)
-        bottom.grid(row=3, column=0, sticky="ew")
+        bottom.grid(row=5, column=0, sticky="ew")
         bottom.columnconfigure(0, weight=1)
         self.status_label = TextLabel(bottom, text="Ready", bg=CARD_BG, fg=MUTED, height=30)
         self.status_label.grid(row=0, column=0, sticky="w")
@@ -483,8 +588,8 @@ class WhisperBatchGui:
         )
 
         self._divider(card, 5)
-        self._section_label(card, "Output Settings", 6, 0)
-        self._section_label(card, "Output Location", 6, 1)
+        self._section_label(card, "Output Files", 6, 0)
+        self._section_label(card, "Where to save results", 6, 1)
 
         formats = tk.Frame(card, bg=CARD_BG)
         formats.grid(row=7, column=0, sticky="w")
@@ -502,7 +607,12 @@ class WhisperBatchGui:
         output = tk.Frame(card, bg=CARD_BG)
         output.grid(row=7, column=1, sticky="nsew", padx=(16, 0))
         output.columnconfigure(0, weight=1)
-        for index, (value, label) in enumerate((("source", "Save next to source files"), ("custom", "Save to folder"))):
+        for index, (value, label) in enumerate(
+            (
+                ("source", "Same folder as each source file"),
+                ("custom", "Choose one output folder"),
+            )
+        ):
             tk.Radiobutton(
                 output,
                 text=label,
@@ -521,6 +631,15 @@ class WhisperBatchGui:
         self.output_entry.grid(row=0, column=0, sticky="ew")
         self.output_browse_button = self._button(path_row, "Browse", self.select_output_dir)
         self.output_browse_button.grid(row=0, column=1, padx=(8, 0))
+        TextLabel(
+            output,
+            text="Default: results are saved beside each original file. To choose a folder, select the second option and click Browse.",
+            bg=CARD_BG,
+            fg=MUTED,
+            font=("Arial", 10),
+            height=44,
+            width=300,
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
 
         self._divider(card, 8)
         advanced_header = tk.Frame(card, bg=CARD_BG)
@@ -659,7 +778,7 @@ class WhisperBatchGui:
             self.selected_files.add(index)
         self._refresh_file_list()
 
-    def _refresh_file_list(self) -> None:
+    def _refresh_file_list(self, reset_progress: bool = True) -> None:
         for child in self.file_rows.inner.winfo_children():
             child.destroy()
 
@@ -673,8 +792,12 @@ class WhisperBatchGui:
         if self.files:
             summary += f"  -  total {total_mb:.0f} MB"
         self.file_summary.configure(text=summary)
-        self.progress.configure(maximum=max(len(self.files), 1), value=0)
-        self.total_progress_label.configure(text=f"Overall: 0 / {len(self.files)}")
+        if reset_progress:
+            self.current_file_index = -1
+            self.current_progress.configure(maximum=1000, value=0)
+            self.progress.configure(maximum=1000, value=0)
+            self.current_progress_label.configure(text="Current: 0%")
+            self.total_progress_label.configure(text=f"Overall: 0 / {len(self.files)} (0%)")
 
     def _render_file_row(self, index: int, path: Path, state: str) -> None:
         selected = index in self.selected_files
@@ -725,6 +848,7 @@ class WhisperBatchGui:
     def _sync_output_controls(self) -> None:
         state = "normal" if self.output_location_var.get() == "custom" else "disabled"
         self.output_entry.configure(state=state)
+        self.output_browse_button.configure(state=state)
 
     def _collect_options(self) -> TranscriptionOptions:
         formats = [name for name, variable in self.format_vars.items() if variable.get()]
@@ -764,12 +888,19 @@ class WhisperBatchGui:
 
         self.results.clear()
         self.cancel_requested.clear()
+        self.current_file_index = -1
         self.file_states = ["Waiting" for _ in self.files]
         self._refresh_file_list()
         self.start_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.status_label.configure(text="Preparing transcription...")
-        self.progress.configure(value=0)
+        self.current_progress.configure(maximum=1000, value=0)
+        self.progress.configure(maximum=1000, value=0)
+        self.current_progress_label.configure(text="Current: 0%")
+        self.total_progress_label.configure(text=f"Overall: 0 / {len(self.files)} (0%)")
+        self.current_progress.start_activity()
+        self.progress.start_activity()
+        write_diagnostic(f"Batch started: files={len(self.files)}, model={options.model_name}, device={options.device}")
         self.worker = threading.Thread(target=self._run_worker, args=(list(self.files), options), daemon=True)
         self.worker.start()
 
@@ -782,16 +913,27 @@ class WhisperBatchGui:
 
     def _run_worker(self, files: list[Path], options: TranscriptionOptions) -> None:
         try:
-            engine = WhisperBatchEngine(progress=lambda msg: self.messages.put(("log", msg)))
+            active_index = {"value": -1}
+
+            def frame_progress(current: int, total: int) -> None:
+                self.messages.put(("file_progress", (active_index["value"], current, total)))
+
+            engine = WhisperBatchEngine(
+                progress=lambda msg: self.messages.put(("log", msg)),
+                frame_progress=frame_progress,
+            )
             total = len(files)
             for index, path in enumerate(files, start=1):
                 if self.cancel_requested.is_set():
                     self.messages.put(("canceled", None))
                     return
+                active_index["value"] = index - 1
                 self.messages.put(("file_state", (index - 1, "Running")))
                 self.messages.put(("status", f"{index}/{total}: {path.name}"))
+                self.messages.put(("file_progress", (index - 1, 0, 1)))
                 result = engine.transcribe_file(path, options)
                 self.messages.put(("result", result.output_files))
+                self.messages.put(("file_progress", (index - 1, 1, 1)))
                 self.messages.put(("file_state", (index - 1, "Done")))
                 self.messages.put(("progress", index))
                 if self.cancel_requested.is_set():
@@ -799,7 +941,9 @@ class WhisperBatchGui:
                     return
             self.messages.put(("done", None))
         except Exception as exc:
-            self.messages.put(("error", f"{exc}\n{traceback.format_exc()}"))
+            details = f"{exc}\n{traceback.format_exc()}"
+            write_diagnostic(f"Worker failed:\n{details}")
+            self.messages.put(("error", details))
 
     def _drain_messages(self) -> None:
         try:
@@ -810,17 +954,40 @@ class WhisperBatchGui:
                 elif kind == "status":
                     self.status_label.configure(text=str(payload))
                     self.current_file_label.configure(text=f"Current file: {str(payload).split(': ', 1)[-1]}")
+                elif kind == "file_progress":
+                    index, current, total = payload
+                    if 0 <= int(index) < len(self.files):
+                        self.current_file_index = int(index)
+                    total_frames = max(int(total), 1)
+                    fraction = max(0.0, min(float(current) / total_frames, 1.0))
+                    current_percent = int(fraction * 100)
+                    self.current_progress.configure(value=int(fraction * 1000))
+                    self.current_progress_label.configure(text=f"Current: {current_percent}%")
+
+                    completed = sum(1 for state in self.file_states if state == "Done")
+                    if 0 <= int(index) < len(self.file_states) and self.file_states[int(index)] != "Done":
+                        overall_fraction = (completed + fraction) / max(len(self.files), 1)
+                    else:
+                        overall_fraction = completed / max(len(self.files), 1)
+                    overall_percent = int(overall_fraction * 100)
+                    self.progress.configure(value=int(overall_fraction * 1000))
+                    self.total_progress_label.configure(
+                        text=f"Overall: {completed} / {len(self.files)} ({overall_percent}%)"
+                    )
                 elif kind == "progress":
                     value = int(payload)
-                    self.progress.configure(value=value)
-                    self.total_progress_label.configure(text=f"Overall: {value} / {len(self.files)}")
+                    overall_fraction = value / max(len(self.files), 1)
+                    self.progress.configure(value=int(overall_fraction * 1000))
+                    self.total_progress_label.configure(
+                        text=f"Overall: {value} / {len(self.files)} ({int(overall_fraction * 100)}%)"
+                    )
                 elif kind == "result":
                     self.results.extend(payload)
                 elif kind == "file_state":
                     index, state = payload
                     if 0 <= index < len(self.file_states):
                         self.file_states[index] = state
-                        self._refresh_file_list()
+                        self._refresh_file_list(reset_progress=False)
                 elif kind == "environment":
                     ok, detail = payload
                     self.ffmpeg_badge.configure(
@@ -836,21 +1003,32 @@ class WhisperBatchGui:
                         )
                 elif kind == "error":
                     self.log(str(payload))
+                    self.current_progress.stop_activity()
+                    self.progress.stop_activity()
                     self.start_button.configure(state="normal")
                     self.cancel_button.configure(state="disabled")
                     self.status_label.configure(text="Failed")
                     messagebox.showerror("Transcription failed", str(payload).splitlines()[0])
                 elif kind == "canceled":
+                    self.current_progress.stop_activity()
+                    self.progress.stop_activity()
                     self.start_button.configure(state="normal")
                     self.cancel_button.configure(state="disabled")
                     self.status_label.configure(text="Canceled")
                     self.log("Batch canceled.")
                 elif kind == "done":
+                    self.current_progress.stop_activity()
+                    self.progress.stop_activity()
+                    self.current_progress.configure(value=1000)
+                    self.progress.configure(value=1000)
+                    self.current_progress_label.configure(text="Current: 100%")
+                    self.total_progress_label.configure(text=f"Overall: {len(self.files)} / {len(self.files)} (100%)")
                     self.start_button.configure(state="normal")
                     self.cancel_button.configure(state="disabled")
                     self.status_label.configure(text="Done")
                     self.current_file_label.configure(text="Current file: none")
                     self.log("All jobs finished.")
+                    write_diagnostic("Batch finished")
         except queue.Empty:
             pass
         self.root.after(100, self._drain_messages)
@@ -859,6 +1037,7 @@ class WhisperBatchGui:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.insert(tk.END, f"{timestamp}   {message}")
         self.log_text.see(tk.END)
+        write_diagnostic(message)
 
     def open_output_folder(self) -> None:
         if self.output_location_var.get() == "custom" and self.output_dir_var.get().strip():
@@ -879,11 +1058,13 @@ class WhisperBatchGui:
 
 
 def main() -> None:
+    ensure_standard_streams()
     if "--self-test" in sys.argv:
         ok, _detail = check_ffmpeg()
         raise SystemExit(0 if ok else 1)
 
     root = Tk()
+    install_exception_hooks(root)
     configure_app_style(root)
     WhisperBatchGui(root)
     root.mainloop()

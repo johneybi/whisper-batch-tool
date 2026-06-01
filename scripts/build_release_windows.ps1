@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
-$Version = "1.1.0"
+$Version = "1.1.3"
 $VenvDir = if ($env:WHISPER_RELEASE_VENV) { $env:WHISPER_RELEASE_VENV } else { ".release-venv" }
 $TorchFlavor = if ($env:WHISPER_RELEASE_TORCH) { $env:WHISPER_RELEASE_TORCH } else { "cpu" }
 $ReleaseDir = Join-Path $ProjectRoot "release"
@@ -48,8 +48,23 @@ if (Test-Path $ZipPath) {
 Compress-Archive -Path (Join-Path $DistApp "*") -DestinationPath $ZipPath
 
 $Iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
-if ($Iscc) {
-    & $Iscc.Source "packaging\windows_installer.iss"
+$IsccPath = if ($Iscc) { $Iscc.Source } else { $null }
+
+if (-not $IsccPath) {
+    $DefaultIsccPaths = @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    )
+    foreach ($Candidate in $DefaultIsccPaths) {
+        if ($Candidate -and (Test-Path $Candidate)) {
+            $IsccPath = $Candidate
+            break
+        }
+    }
+}
+
+if ($IsccPath) {
+    & $IsccPath "packaging\windows_installer.iss"
 } else {
     Write-Host "Inno Setup not found. ZIP package was created; installer EXE was skipped."
     Write-Host "Install Inno Setup from https://jrsoftware.org/isinfo.php to build the setup EXE."

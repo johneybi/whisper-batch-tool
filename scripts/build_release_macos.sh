@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="1.1.0"
+VERSION="1.1.3"
 APP_NAME="WhisperBatchTranscriber"
 VENV_DIR="${WHISPER_RELEASE_VENV:-.release-venv}"
 RELEASE_DIR="release"

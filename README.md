@@ -6,10 +6,10 @@ Whisper 기반 오디오/비디오 배치 전사 GUI 앱입니다. 목표는 최
 
 최종 사용자는 GitHub의 Releases 페이지에서 본인 OS에 맞는 파일을 다운로드하면 됩니다. 배포자는 OS별로 빌드한 뒤 `release/` 폴더의 산출물을 GitHub Release에 첨부합니다.
 
-- Windows: `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
-- Windows 대체 배포: `WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
-- macOS: `WhisperBatchTranscriber-1.1.0-macOS.dmg`
-- macOS 대체 배포: `WhisperBatchTranscriber-1.1.0-macOS.zip`
+- Windows: `WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
+- Windows 대체 배포: `WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
+- macOS: `WhisperBatchTranscriber-1.1.3-macOS.dmg`
+- macOS 대체 배포: `WhisperBatchTranscriber-1.1.3-macOS.zip`
 
 릴리스에 첨부된 파일만 받으면 됩니다. Python과 ffmpeg를 따로 설치하지 않아도 됩니다. Whisper 모델은 첫 사용 시 선택한 모델을 자동 다운로드하므로 인터넷 연결이 필요할 수 있습니다.
 
@@ -17,7 +17,7 @@ Whisper 기반 오디오/비디오 배치 전사 GUI 앱입니다. 목표는 최
 
 Windows 설치 파일:
 
-1. `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`를 실행합니다.
+1. `WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`를 실행합니다.
 2. 시작 메뉴 또는 바탕화면 바로가기로 앱을 실행합니다.
 3. `Add Files` 또는 `Add Folder`로 파일을 추가하고 `Start`를 누릅니다.
 
@@ -69,7 +69,7 @@ GitHub 저장소에서 배포한다면 Actions 탭의 `Build distributable apps`
 필요 도구:
 
 - Python 3.10 이상
-- 선택 사항: Inno Setup, 설치형 `.exe` 생성용
+- 선택 사항: Inno Setup, 설치형 `.exe` 생성용. `PATH`에 없어도 기본 설치 위치인 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`를 자동 탐색합니다.
 
 빌드:
 
@@ -88,8 +88,8 @@ build_windows.bat
 
 결과:
 
-- 항상 생성: `release/WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
-- Inno Setup이 있으면 추가 생성: `release/WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
+- 항상 생성: `release/WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
+- Inno Setup이 있으면 추가 생성: `release/WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
 
 Windows ZIP을 배포하기 전에 다음 검증을 실행합니다. ZIP을 임시 폴더에 풀고, 시스템 ffmpeg가 없는 PATH에서 앱 self-test를 통과해야 성공합니다.
 
@@ -113,8 +113,8 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 
 결과:
 
-- `release/WhisperBatchTranscriber-1.1.0-macOS.dmg`
-- `release/WhisperBatchTranscriber-1.1.0-macOS.zip`
+- `release/WhisperBatchTranscriber-1.1.3-macOS.dmg`
+- `release/WhisperBatchTranscriber-1.1.3-macOS.zip`
 
 ## 개발자 직접 실행
 

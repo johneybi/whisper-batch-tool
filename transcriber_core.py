@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -32,6 +33,30 @@ MODEL_NAMES = ("tiny", "base", "small", "medium", "large", "large-v2", "large-v3
 
 
 ProgressCallback = Callable[[str], None]
+FrameProgressCallback = Callable[[int, int], None]
+
+
+class _NullStream:
+    encoding = "utf-8"
+    errors = "replace"
+
+    def write(self, _value: object) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+
+def ensure_standard_streams() -> None:
+    # PyInstaller windowed apps run without a console, so sys.stdout/stderr can
+    # be None. Some dependencies still call .write() even with quiet options.
+    if sys.stdout is None:
+        sys.stdout = _NullStream()  # type: ignore[assignment]
+    if sys.stderr is None:
+        sys.stderr = _NullStream()  # type: ignore[assignment]
 
 
 @dataclass
@@ -111,6 +136,7 @@ def _app_cache_dir() -> Path:
 
 
 def ensure_ffmpeg_on_path() -> Optional[Path]:
+    ensure_standard_streams()
     existing = shutil.which("ffmpeg")
     if existing:
         return Path(existing)
@@ -162,6 +188,50 @@ def check_ffmpeg() -> tuple[bool, str]:
 
     first_line = (result.stdout or "").splitlines()[0] if result.stdout else "ffmpeg"
     return True, first_line
+
+
+@contextmanager
+def _capture_whisper_frame_progress(callback: Optional[FrameProgressCallback]):
+    if callback is None:
+        yield
+        return
+
+    import importlib
+
+    transcribe_module = importlib.import_module("whisper.transcribe")
+    original_tqdm = transcribe_module.tqdm.tqdm
+
+    class ProgressProxy:
+        def __init__(self, *args, **kwargs):
+            self._inner = original_tqdm(*args, **kwargs)
+            self._total = int(kwargs.get("total") or getattr(self._inner, "total", 0) or 0)
+            self._current = int(getattr(self._inner, "n", 0) or 0)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            if self._total:
+                callback(0, self._total)
+            return self
+
+        def __exit__(self, exc_type, exc_value, exc_traceback):
+            return self._inner.__exit__(exc_type, exc_value, exc_traceback)
+
+        def update(self, amount=1):
+            result = self._inner.update(amount)
+            self._current += int(amount or 0)
+            if self._total:
+                current = int(min(max(getattr(self._inner, "n", self._current), self._current), self._total))
+                callback(current, self._total)
+            return result
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    transcribe_module.tqdm.tqdm = ProgressProxy
+    try:
+        yield
+    finally:
+        transcribe_module.tqdm.tqdm = original_tqdm
 
 
 def is_supported_media(path: Path) -> bool:
@@ -291,8 +361,13 @@ def write_outputs(
 
 
 class WhisperBatchEngine:
-    def __init__(self, progress: Optional[ProgressCallback] = None):
+    def __init__(
+        self,
+        progress: Optional[ProgressCallback] = None,
+        frame_progress: Optional[FrameProgressCallback] = None,
+    ):
         self._progress = progress or (lambda message: None)
+        self._frame_progress = frame_progress
         self._model_name: Optional[str] = None
         self._device: Optional[str] = None
         self._model = None
@@ -301,6 +376,7 @@ class WhisperBatchEngine:
         self._progress(message)
 
     def load_model(self, model_name: str, device: str = "auto") -> None:
+        ensure_standard_streams()
         normalized_device = None if device == "auto" else device
         if self._model is not None and self._model_name == model_name and self._device == device:
             return
@@ -314,6 +390,7 @@ class WhisperBatchEngine:
         self._emit(f"Model ready: {model_name}")
 
     def transcribe_file(self, source: Path, options: TranscriptionOptions) -> TranscriptionResult:
+        ensure_standard_streams()
         if not source.exists():
             raise FileNotFoundError(source)
 
@@ -329,18 +406,21 @@ class WhisperBatchEngine:
         fp16 = str(getattr(self._model, "device", "")).startswith("cuda")
         self._emit(f"Transcribing: {source.name}")
         started = time.time()
-        raw_result = self._model.transcribe(
-            str(source),
-            language=language,
-            task=options.task,
-            fp16=fp16,
-            verbose=False,
-            temperature=options.temperature,
-            condition_on_previous_text=options.condition_on_previous_text,
-            no_speech_threshold=0.6,
-            logprob_threshold=-1.0,
-            compression_ratio_threshold=2.4,
-        )
+        with _capture_whisper_frame_progress(self._frame_progress):
+            raw_result = self._model.transcribe(
+                str(source),
+                language=language,
+                task=options.task,
+                fp16=fp16,
+                verbose=False,
+                temperature=options.temperature,
+                condition_on_previous_text=options.condition_on_previous_text,
+                no_speech_threshold=0.6,
+                logprob_threshold=-1.0,
+                compression_ratio_threshold=2.4,
+            )
+        if self._frame_progress is not None:
+            self._frame_progress(1, 1)
         elapsed = time.time() - started
         output_files = write_outputs(source, raw_result, options, elapsed)
         self._emit(f"Finished: {source.name} ({elapsed:.1f}s)")

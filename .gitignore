@@ -13,6 +13,7 @@ build/
 dist/
 release/
 desktop/dist/
+logs/
 *.spec.bak
 
 # Audio/Video files (사용자 파일은 업로드하지 않음)

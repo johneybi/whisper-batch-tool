@@ -4,6 +4,7 @@ import unittest
 
 from transcriber_core import (
     TranscriptionOptions,
+    _capture_whisper_frame_progress,
     _format_timestamp,
     discover_media_files,
     write_outputs,
@@ -57,6 +58,21 @@ class TranscriberCoreTests(unittest.TestCase):
             self.assertIn("hello world", (root / "meeting_1.txt").read_text(encoding="utf-8"))
             self.assertIn("00:00:00,000 --> 00:00:01,250", (root / "meeting.srt").read_text(encoding="utf-8"))
             self.assertIn('"language": "en"', (root / "meeting.json").read_text(encoding="utf-8"))
+
+    def test_capture_whisper_frame_progress_reports_tqdm_updates(self) -> None:
+        import importlib
+
+        transcribe_module = importlib.import_module("whisper.transcribe")
+        original_tqdm = transcribe_module.tqdm.tqdm
+        events: list[tuple[int, int]] = []
+
+        with _capture_whisper_frame_progress(lambda current, total: events.append((current, total))):
+            with transcribe_module.tqdm.tqdm(total=10, disable=True) as progress:
+                progress.update(3)
+                progress.update(4)
+
+        self.assertEqual(events, [(0, 10), (3, 10), (7, 10)])
+        self.assertIs(transcribe_module.tqdm.tqdm, original_tqdm)
 
 
 if __name__ == "__main__":

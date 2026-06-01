@@ -67,8 +67,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "Whisper Batch Transcriber",
             "CFBundleDisplayName": "Whisper Batch Transcriber",
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "1.1.0",
+            "CFBundleShortVersionString": "1.1.3",
+            "CFBundleVersion": "1.1.3",
             "NSHighResolutionCapable": "True",
             "NSRequiresAquaSystemAppearance": True,
         },
