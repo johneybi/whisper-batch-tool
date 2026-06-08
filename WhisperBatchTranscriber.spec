@@ -8,7 +8,7 @@ datas = []
 binaries = []
 hiddenimports = []
 
-for package in ("whisper", "tiktoken", "imageio_ffmpeg"):
+for package in ("whisper", "tiktoken", "imageio_ffmpeg", "pip"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     datas += package_datas
     binaries += package_binaries

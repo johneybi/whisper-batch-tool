@@ -87,7 +87,8 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 - Users can specify language code.
 - Default language is Korean (`ko`).
 - Users can choose automatic language detection by clearing the language value.
-- Users can choose task: `transcribe` or `translate`.
+- Users can choose task: `transcribe` or Whisper `translate`.
+- Whisper `translate` outputs English text/subtitles only; arbitrary target-language translation requires a separate translation engine.
 - Users can choose device: `auto`, `cpu`, `cuda`, or `mps`.
 - Users can enable or disable Whisper previous-text context.
 
@@ -106,7 +107,7 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 - Files are processed sequentially.
 - The app shows progress and status.
 - The app logs major processing events.
-- Users can cancel the batch after the current file finishes.
+- Users can cancel the active batch. The Electron UI terminates the active worker and marks the in-progress file as canceled.
 - Failed processing displays an error message and restores the Start button.
 
 ### Runtime Dependencies
@@ -209,17 +210,15 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_release_windows.ps1
 - First model use may require internet access.
 - Large models can be slow and memory-intensive.
 - macOS Gatekeeper warnings are expected until Developer ID signing and notarization are added.
-- The current cancel behavior stops after the current file, not during an active Whisper transcription call.
+- Canceling an active transcription terminates the worker process rather than gracefully unwinding Whisper internals.
 - No speaker diarization or transcript editor is included.
 
 ## 14. Future Enhancements
 
 - Developer ID signing and notarization for macOS.
 - A visible install screen or first-run model download status.
-- In-progress transcription cancellation.
-- Drag-and-drop file support.
+- Graceful cancellation that preserves worker process state.
 - Per-file success/failure summary.
-- Output preview panel.
 - Speaker diarization option.
 - User-configurable Whisper advanced parameters.
 - Localization for Korean and English UI text.

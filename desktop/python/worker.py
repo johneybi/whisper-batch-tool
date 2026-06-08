@@ -13,6 +13,7 @@ from transcriber_core import (  # noqa: E402
     WhisperBatchEngine,
     check_ffmpeg,
     discover_media_files,
+    get_torch_runtime_info,
 )
 
 
@@ -52,6 +53,23 @@ def command_discover() -> None:
     )
 
 
+def command_runtime_info() -> None:
+    info = get_torch_runtime_info()
+    emit(
+        "done",
+        {
+            "installed": info.installed,
+            "version": info.version,
+            "cudaAvailable": info.cuda_available,
+            "cudaVersion": info.cuda_version,
+            "cudaDeviceName": info.cuda_device_name,
+            "mpsAvailable": info.mps_available,
+            "label": info.device_label(),
+            "error": info.error,
+        },
+    )
+
+
 def command_transcribe() -> None:
     payload = read_payload()
     files = [Path(item) for item in payload.get("files", [])]
@@ -72,11 +90,29 @@ def command_transcribe() -> None:
     engine = WhisperBatchEngine(progress=lambda message: emit("log", message))
     total = len(files)
     for index, path in enumerate(files, start=1):
-        emit("file-state", {"index": index - 1, "state": "running"})
-        emit("status", {"index": index, "total": total, "file": path.name})
-        result = engine.transcribe_file(path, options)
-        output_files.extend(str(item) for item in result.output_files)
-        emit("file-state", {"index": index - 1, "state": "done"})
+        emit("file-state", {"index": index - 1, "path": str(path), "state": "running"})
+        emit("status", {"index": index, "total": total, "file": path.name, "path": str(path)})
+        try:
+            result = engine.transcribe_file(path, options)
+        except Exception as exc:
+            emit("file-state", {"index": index - 1, "path": str(path), "state": "failed", "error": str(exc)})
+            emit("log", f"Failed: {path.name}: {exc}")
+            emit("progress", {"value": index, "total": total})
+            continue
+
+        result_output_files = [str(item) for item in result.output_files]
+        output_files.extend(result_output_files)
+        emit(
+            "file-state",
+            {
+                "index": index - 1,
+                "path": str(path),
+                "state": "done",
+                "outputFiles": result_output_files,
+                "previewText": result.text[:8000],
+                "elapsedSeconds": round(result.elapsed_seconds, 1),
+            },
+        )
         emit("progress", {"value": index, "total": total})
 
     emit("done", {"output_files": output_files})
@@ -89,6 +125,8 @@ def main() -> None:
     command = sys.argv[1]
     if command == "self-test":
         command_self_test()
+    elif command == "runtime-info":
+        command_runtime_info()
     elif command == "discover":
         command_discover()
     elif command == "transcribe":

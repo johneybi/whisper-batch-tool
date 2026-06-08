@@ -5,10 +5,14 @@ Set-Location $ProjectRoot
 
 $Version = "1.1.3"
 $VenvDir = if ($env:WHISPER_RELEASE_VENV) { $env:WHISPER_RELEASE_VENV } else { ".release-venv" }
-$TorchFlavor = if ($env:WHISPER_RELEASE_TORCH) { $env:WHISPER_RELEASE_TORCH } else { "cpu" }
+$TorchFlavor = if ($env:WHISPER_RELEASE_TORCH) { $env:WHISPER_RELEASE_TORCH.ToLowerInvariant() } else { "cpu" }
+if ($TorchFlavor -notin @("cpu", "cuda")) {
+    throw "Unsupported WHISPER_RELEASE_TORCH value: $TorchFlavor. Use 'cpu' or 'cuda'."
+}
+$PackageSuffix = if ($TorchFlavor -eq "cuda") { "-CUDA" } else { "" }
 $ReleaseDir = Join-Path $ProjectRoot "release"
 $DistApp = Join-Path $ProjectRoot "dist\WhisperBatchTranscriber"
-$ZipPath = Join-Path $ReleaseDir "WhisperBatchTranscriber-$Version-Windows-x64.zip"
+$ZipPath = Join-Path $ReleaseDir "WhisperBatchTranscriber-$Version-Windows$PackageSuffix-x64.zip"
 
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
 
@@ -33,10 +37,20 @@ if (-not (Test-Path $VenvPython)) {
 
 & $VenvPython -m pip install --upgrade pip
 
-if ($TorchFlavor -eq "cuda") {
-    & $VenvPython -m pip install torch --index-url https://download.pytorch.org/whl/cu126
+$ExistingTorchFlavor = & $VenvPython -c "import torch; print('cuda' if torch.version.cuda else 'cpu')" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    $ExistingTorchFlavor = "missing"
+}
+
+if ($ExistingTorchFlavor -ne $TorchFlavor) {
+    Write-Host "Installing PyTorch flavor: $TorchFlavor (current: $ExistingTorchFlavor)"
+    if ($TorchFlavor -eq "cuda") {
+        & $VenvPython -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu126
+    } else {
+        & $VenvPython -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cpu
+    }
 } else {
-    & $VenvPython -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+    Write-Host "PyTorch flavor already matches: $TorchFlavor"
 }
 
 & $VenvPython -m pip install -r requirements.txt pyinstaller
@@ -65,6 +79,16 @@ if (-not $IsccPath) {
 
 if ($IsccPath) {
     & $IsccPath "packaging\windows_installer.iss"
+    if ($TorchFlavor -eq "cuda") {
+        $DefaultSetup = Join-Path $ReleaseDir "WhisperBatchTranscriber-$Version-Windows-Setup.exe"
+        $CudaSetup = Join-Path $ReleaseDir "WhisperBatchTranscriber-$Version-Windows-CUDA-Setup.exe"
+        if (Test-Path $CudaSetup) {
+            Remove-Item -LiteralPath $CudaSetup -Force
+        }
+        if (Test-Path $DefaultSetup) {
+            Move-Item -LiteralPath $DefaultSetup -Destination $CudaSetup
+        }
+    }
 } else {
     Write-Host "Inno Setup not found. ZIP package was created; installer EXE was skipped."
     Write-Host "Install Inno Setup from https://jrsoftware.org/isinfo.php to build the setup EXE."

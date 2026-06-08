@@ -12,6 +12,16 @@ import tkinter as tk
 from tkinter import BooleanVar, StringVar, Tk, filedialog, messagebox
 
 from app_info import APP_DISPLAY_NAME, APP_NAME, APP_VERSION
+from runtime_manager import (
+    activate_selected_runtime,
+    get_selected_runtime,
+    install_runtime,
+    is_runtime_installed,
+    set_selected_runtime,
+)
+
+RUNTIME_ACTIVATION = activate_selected_runtime()
+
 from transcriber_core import (
     MODEL_NAMES,
     OUTPUT_FORMATS,
@@ -20,6 +30,7 @@ from transcriber_core import (
     check_ffmpeg,
     discover_media_files,
     ensure_standard_streams,
+    get_torch_runtime_info,
     supported_filetype_patterns,
 )
 
@@ -193,6 +204,8 @@ class TextLabel(tk.Button):
         anchor: str = "w",
         padx: int = 0,
         width: int | None = None,
+        wraplength: int | None = None,
+        justify: str | None = None,
     ):
         options = {
             "text": text,
@@ -211,6 +224,10 @@ class TextLabel(tk.Button):
             "cursor": "arrow",
             "command": lambda: None,
         }
+        if wraplength is not None:
+            options["wraplength"] = wraplength
+        if justify is not None:
+            options["justify"] = justify
         if width is not None:
             options["width"] = max(1, int(width / 9))
         else:
@@ -254,6 +271,9 @@ class WhisperBatchGui:
         self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self.results: list[Path] = []
         self.current_file_index = -1
+        self.torch_runtime = None
+        self.runtime_activation = RUNTIME_ACTIVATION
+        self.runtime_installing = False
 
         self.model_var = StringVar(value="small")
         self.language_var = StringVar(value="ko")
@@ -388,17 +408,16 @@ class WhisperBatchGui:
             anchor="center",
         )
         self.ffmpeg_badge.grid(row=0, column=0, padx=(0, 10))
-        TextLabel(
+        self.torch_badge = TextLabel(
             nav,
-            text="Local processing",
+            text="Torch checking...",
             bg=SOFT_BLUE_BG,
             fg=BLUE_DARK,
             height=38,
-            width=145,
+            width=180,
             anchor="center",
-        ).grid(
-            row=0, column=1, padx=(0, 10)
         )
+        self.torch_badge.grid(row=0, column=1, padx=(0, 10))
         self._button(nav, "Settings", lambda: self.log("Settings are shown in the right panel.")).grid(
             row=0, column=2, padx=(0, 8)
         )
@@ -583,9 +602,39 @@ class WhisperBatchGui:
             ).grid(row=index, column=0, sticky="w", pady=2)
 
         self._section_label(card, "Device", 3, 1)
-        self._option(card, self.device_var, ("auto", "cpu", "cuda", "mps")).grid(
-            row=4, column=1, sticky="new", padx=(16, 0)
+        device_frame = tk.Frame(card, bg=CARD_BG)
+        device_frame.grid(row=4, column=1, sticky="new", padx=(16, 0))
+        device_frame.columnconfigure(0, weight=1)
+        self._option(device_frame, self.device_var, ("auto", "cpu", "cuda", "mps")).grid(
+            row=0, column=0, sticky="ew"
         )
+        self.device_status_label = TextLabel(
+            device_frame,
+            text="Checking PyTorch/CUDA...",
+            bg=CARD_BG,
+            fg=MUTED,
+            height=42,
+            anchor="w",
+            wraplength=320,
+            justify="left",
+        )
+        self.device_status_label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        runtime_actions = tk.Frame(device_frame, bg=CARD_BG)
+        runtime_actions.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        runtime_actions.columnconfigure(0, weight=1)
+        runtime_actions.columnconfigure(1, weight=1)
+        self.install_cuda_button = self._button(
+            runtime_actions,
+            "Install CUDA runtime",
+            self.install_cuda_runtime,
+        )
+        self.install_cuda_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.use_cpu_button = self._button(
+            runtime_actions,
+            "Use bundled CPU",
+            self.use_bundled_cpu_runtime,
+        )
+        self.use_cpu_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
         self._divider(card, 5)
         self._section_label(card, "Output Files", 6, 0)
@@ -707,7 +756,40 @@ class WhisperBatchGui:
 
     def _run_environment_check(self) -> None:
         ok, detail = check_ffmpeg()
-        self.messages.put(("environment", (ok, detail)))
+        torch_info = get_torch_runtime_info()
+        self.messages.put(("environment", (ok, detail, torch_info)))
+
+    def install_cuda_runtime(self) -> None:
+        if self.runtime_installing:
+            return
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("Busy", "Wait until the current transcription job finishes.")
+            return
+        confirmed = messagebox.askyesno(
+            "Install CUDA runtime",
+            "This will download and install NVIDIA CUDA PyTorch into your user profile. "
+            "It can take several minutes and requires an internet connection. Continue?",
+        )
+        if not confirmed:
+            return
+        self.runtime_installing = True
+        self.install_cuda_button.configure(state="disabled")
+        self.use_cpu_button.configure(state="disabled")
+        self.status_label.configure(text="Installing CUDA runtime...")
+        self.log("CUDA runtime installation started.")
+        threading.Thread(target=self._install_cuda_runtime_worker, daemon=True).start()
+
+    def _install_cuda_runtime_worker(self) -> None:
+        try:
+            install_runtime("cuda", progress=lambda msg: self.messages.put(("log", msg)))
+            self.messages.put(("runtime_installed", "cuda"))
+        except Exception as exc:
+            self.messages.put(("runtime_error", f"{exc}\n{traceback.format_exc()}"))
+
+    def use_bundled_cpu_runtime(self) -> None:
+        set_selected_runtime("bundled")
+        self.log("Bundled CPU runtime selected. Restart the app to fully apply this change.")
+        messagebox.showinfo("Restart required", "Bundled CPU runtime will be used after restarting the app.")
 
     def show_help(self) -> None:
         messagebox.showinfo(
@@ -862,6 +944,21 @@ class WhisperBatchGui:
                 raise ValueError("Select an output folder or save next to source files.")
             output_dir = Path(selected)
 
+        selected_device = self.device_var.get()
+        torch_info = self.torch_runtime or get_torch_runtime_info()
+        if selected_device == "cuda" and not torch_info.cuda_available:
+            if torch_info.cuda_build:
+                raise ValueError(
+                    "CUDA was selected, but no NVIDIA CUDA GPU is available to PyTorch. "
+                    "Check the NVIDIA driver and GPU availability."
+                )
+            raise ValueError(
+                "CUDA was selected, but this app is running with a CPU-only PyTorch build. "
+                "Click Install CUDA runtime, restart the app, then select cuda again."
+            )
+        if selected_device == "mps" and not torch_info.mps_available:
+            raise ValueError("MPS was selected, but Apple Silicon MPS is not available in this environment.")
+
         return TranscriptionOptions(
             model_name=self.model_var.get(),
             language=self.language_var.get().strip(),
@@ -869,7 +966,7 @@ class WhisperBatchGui:
             output_formats=formats,
             output_dir=output_dir,
             overwrite=self.overwrite_var.get(),
-            device=self.device_var.get(),
+            device=selected_device,
             condition_on_previous_text=self.keep_context_var.get(),
         )
 
@@ -989,18 +1086,54 @@ class WhisperBatchGui:
                         self.file_states[index] = state
                         self._refresh_file_list(reset_progress=False)
                 elif kind == "environment":
-                    ok, detail = payload
+                    ok, detail, torch_info = payload
+                    self.torch_runtime = torch_info
                     self.ffmpeg_badge.configure(
                         text="ffmpeg OK" if ok else "ffmpeg missing",
                         bg=GREEN_BG if ok else "#fee2e2",
                         fg=GREEN if ok else ERROR,
                     )
+                    cuda_ready = bool(torch_info.cuda_available)
+                    torch_label = "CUDA ready" if cuda_ready else "CPU build"
+                    if not torch_info.installed:
+                        torch_label = "Torch missing"
+                    elif torch_info.cuda_build and not cuda_ready:
+                        torch_label = "CUDA unavailable"
+                    self.torch_badge.configure(
+                        text=torch_label,
+                        bg=GREEN_BG if cuda_ready else SOFT_BLUE_BG,
+                        fg=GREEN if cuda_ready else BLUE_DARK,
+                    )
+                    selected_runtime = get_selected_runtime()
+                    runtime_note = "Runtime: bundled CPU"
+                    if selected_runtime == "cuda":
+                        runtime_note = "Runtime: CUDA installed" if is_runtime_installed("cuda") else "Runtime: CUDA selected, not installed"
+                    self.device_status_label.configure(text=f"{torch_info.device_label()}\n{runtime_note}")
                     self.log(str(detail))
+                    self.log(self.runtime_activation.message)
+                    self.log(f"PyTorch {torch_info.version}: {torch_info.device_label()}")
                     if not ok:
                         messagebox.showwarning(
                             "ffmpeg not found",
                             "ffmpeg is required for broad audio/video format support. Install it, then restart this app.",
                         )
+                elif kind == "runtime_installed":
+                    self.runtime_installing = False
+                    self.install_cuda_button.configure(state="normal")
+                    self.use_cpu_button.configure(state="normal")
+                    self.status_label.configure(text="CUDA runtime installed")
+                    self.log("CUDA runtime installed. Restart the app, then select device=cuda.")
+                    messagebox.showinfo(
+                        "Restart required",
+                        "CUDA runtime was installed. Restart the app before starting a CUDA transcription.",
+                    )
+                elif kind == "runtime_error":
+                    self.runtime_installing = False
+                    self.install_cuda_button.configure(state="normal")
+                    self.use_cpu_button.configure(state="normal")
+                    self.status_label.configure(text="CUDA runtime install failed")
+                    self.log(str(payload))
+                    messagebox.showerror("CUDA runtime install failed", str(payload).splitlines()[0])
                 elif kind == "error":
                     self.log(str(payload))
                     self.current_progress.stop_activity()
@@ -1062,6 +1195,11 @@ def main() -> None:
     if "--self-test" in sys.argv:
         ok, _detail = check_ffmpeg()
         raise SystemExit(0 if ok else 1)
+    if "--install-runtime" in sys.argv:
+        index = sys.argv.index("--install-runtime")
+        flavor = sys.argv[index + 1] if index + 1 < len(sys.argv) else "cuda"
+        install_runtime(flavor, progress=lambda message: print(message, flush=True))
+        raise SystemExit(0)
 
     root = Tk()
     install_exception_hooks(root)

@@ -77,9 +77,9 @@ GitHub 저장소에서 배포한다면 Actions 탭의 `Build distributable apps`
 build_windows.bat
 ```
 
-Windows 배포 빌드는 기본적으로 CPU 전용 Torch를 포함합니다. 대부분의 사용자에게 가장 호환성이 좋습니다.
+Windows 기본 배포 빌드는 CPU 전용 Torch를 포함합니다. NVIDIA GPU를 쓰려면 앱 설치 후 Device 영역의 `Install CUDA runtime`을 눌러 CUDA PyTorch를 사용자 프로필에 추가 설치한 뒤 앱을 재시작하고 `cuda`를 선택합니다.
 
-NVIDIA CUDA용 빌드를 따로 만들려면 다음처럼 실행합니다.
+오프라인 배포처럼 CUDA용 Torch까지 미리 포함한 빌드를 따로 만들려면 다음처럼 실행합니다.
 
 ```bat
 set WHISPER_RELEASE_TORCH=cuda
@@ -88,8 +88,10 @@ build_windows.bat
 
 결과:
 
-- 항상 생성: `release/WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
-- Inno Setup이 있으면 추가 생성: `release/WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
+- 기본 ZIP: `release/WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
+- 기본 설치 파일: `release/WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
+- 오프라인 CUDA ZIP: `release/WhisperBatchTranscriber-1.1.3-Windows-CUDA-x64.zip`
+- 오프라인 CUDA 설치 파일: `release/WhisperBatchTranscriber-1.1.3-Windows-CUDA-Setup.exe`
 
 Windows ZIP을 배포하기 전에 다음 검증을 실행합니다. ZIP을 임시 폴더에 풀고, 시스템 ffmpeg가 없는 PATH에서 앱 self-test를 통과해야 성공합니다.
 
@@ -135,17 +137,23 @@ chmod +x install_gui.sh run_gui.sh
 ./run_gui.sh
 ```
 
-### Electron/React 프로토타입
+### Electron/React 데스크톱 UI
 
-레퍼런스 이미지에 가까운 새 데스크톱 UI는 기존 Python 전사 코어를 그대로 사용하면서 `desktop/` 아래 Electron/React 앱으로 분리해 두었습니다. 아직 릴리스 패키징 대상은 아니며, 디자인과 UX를 검증하기 위한 프로토타입입니다.
+레퍼런스 이미지에 가까운 새 데스크톱 UI는 `desktop/` 아래 Electron/React/shadcn 기반 앱으로 분리되어 있으며, 기존 Python 전사 코어를 그대로 사용합니다. Windows에서 이 UI를 확인할 때는 루트에서 전용 스크립트를 실행합니다.
 
-```bash
-cd desktop
-npm install
-npm run dev
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1
 ```
 
-프로토타입은 루트의 `.release-venv` Python을 우선 사용합니다. 다른 Python 실행 파일을 쓰려면 `WHISPER_PYTHON` 환경 변수에 경로를 지정합니다.
+처음 실행하거나 의존성을 다시 설치해야 하면 `-Install`을 붙입니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1 -Install
+```
+
+`scripts\run_dev_windows.ps1`는 기존 `whisper_gui.py` Tk GUI를 실행합니다. shadcn/Electron 화면, 파일 드롭 경로, 파일 선택 대화상자, 전사 IPC를 확인하려면 `run_desktop_dev_windows.ps1`를 사용해야 합니다. 브라우저 preview 모드는 레이아웃 확인용이며 Electron 전용 기능은 동작하지 않습니다.
+
+Electron 앱은 `WHISPER_PYTHON`이 있으면 그 값을 사용하고, 없으면 루트의 `.release-venv`, `venv`, `C:\whisper\torch-env\Scripts\python.exe` 순서로 Python을 찾습니다.
 
 ## 개발자 검증
 

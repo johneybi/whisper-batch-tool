@@ -81,6 +81,63 @@ class TranscriptionResult:
     elapsed_seconds: float
 
 
+@dataclass
+class TorchRuntimeInfo:
+    installed: bool
+    version: str = "unknown"
+    cuda_available: bool = False
+    cuda_version: str = ""
+    cuda_device_name: str = ""
+    mps_available: bool = False
+    error: str = ""
+
+    @property
+    def cuda_build(self) -> bool:
+        return bool(self.cuda_version)
+
+    def device_label(self) -> str:
+        if not self.installed:
+            return "PyTorch not installed"
+        if self.cuda_available:
+            return f"CUDA ready: {self.cuda_device_name or 'NVIDIA GPU'}"
+        if self.cuda_build:
+            return f"CUDA build installed, GPU unavailable ({self.cuda_version})"
+        if self.mps_available:
+            return "Apple MPS ready"
+        return "CPU PyTorch build"
+
+
+def get_torch_runtime_info() -> TorchRuntimeInfo:
+    try:
+        import torch
+    except Exception as exc:
+        return TorchRuntimeInfo(installed=False, error=str(exc))
+
+    cuda_version = str(getattr(torch.version, "cuda", "") or "")
+    cuda_available = bool(torch.cuda.is_available())
+    cuda_device_name = ""
+    if cuda_available:
+        try:
+            cuda_device_name = torch.cuda.get_device_name(0)
+        except Exception:
+            cuda_device_name = "NVIDIA GPU"
+
+    mps_available = False
+    try:
+        mps_available = bool(torch.backends.mps.is_available())
+    except Exception:
+        mps_available = False
+
+    return TorchRuntimeInfo(
+        installed=True,
+        version=str(getattr(torch, "__version__", "unknown")),
+        cuda_available=cuda_available,
+        cuda_version=cuda_version,
+        cuda_device_name=cuda_device_name,
+        mps_available=mps_available,
+    )
+
+
 def _prepend_path(directory: Path) -> None:
     directory = directory.resolve()
     path_value = os.environ.get("PATH", "")

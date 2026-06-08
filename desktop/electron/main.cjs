@@ -8,17 +8,32 @@ const desktopDir = path.resolve(__dirname, "..");
 let mainWindow = null;
 let activeWorker = null;
 
+const mediaExtensions = new Set([
+  "aac", "aiff", "alac", "amr", "ape", "au", "caf", "dts", "flac", "m4a", "m4b", "mid", "midi", "mp3", "oga", "ogg",
+  "opus", "ra", "snd", "tta", "voc", "wav", "weba", "wma", "wv", "3g2", "3gp", "asf", "avi", "divx", "dv", "f4v",
+  "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "mxf", "ogv", "rm", "rmvb", "ts", "vob", "webm", "wmv"
+]);
+
 function pythonExecutable() {
   if (process.env.WHISPER_PYTHON) {
     return process.env.WHISPER_PYTHON;
   }
 
-  const localPython = process.platform === "win32"
-    ? path.join(rootDir, ".release-venv", "Scripts", "python.exe")
-    : path.join(rootDir, ".release-venv", "bin", "python");
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(rootDir, ".release-venv", "Scripts", "python.exe"),
+        path.join(rootDir, "venv", "Scripts", "python.exe"),
+        "C:\\whisper\\torch-env\\Scripts\\python.exe",
+      ]
+    : [
+        path.join(rootDir, ".release-venv", "bin", "python"),
+        path.join(rootDir, "venv", "bin", "python"),
+      ];
 
-  if (fs.existsSync(localPython)) {
-    return localPython;
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
 
   return process.platform === "win32" ? "python" : "python3";
@@ -38,14 +53,77 @@ function fileInfo(filePath) {
   };
 }
 
+function isMediaFile(filePath) {
+  return mediaExtensions.has(path.extname(filePath).replace(".", "").toLowerCase());
+}
+
+function discoverMediaFiles(folderPath, recursive) {
+  const results = [];
+  const entries = fs.readdirSync(folderPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const entryPath = path.join(folderPath, entry.name);
+    if (entry.isFile() && isMediaFile(entryPath)) {
+      results.push(entryPath);
+    } else if (recursive && entry.isDirectory()) {
+      results.push(...discoverMediaFiles(entryPath, recursive));
+    }
+  }
+
+  return results.sort((left, right) => left.localeCompare(right));
+}
+
+function resolveMediaPaths(inputPaths, recursive = true) {
+  const files = [];
+  const seen = new Set();
+  let skipped = 0;
+
+  for (const inputPath of inputPaths) {
+    try {
+      const resolved = path.resolve(inputPath);
+      const stat = fs.statSync(resolved);
+      const candidates = stat.isDirectory()
+        ? discoverMediaFiles(resolved, recursive)
+        : [resolved];
+
+      if (!candidates.length) {
+        skipped += 1;
+        continue;
+      }
+
+      for (const candidate of candidates) {
+        if (!isMediaFile(candidate)) {
+          skipped += 1;
+          continue;
+        }
+        if (seen.has(candidate)) continue;
+        seen.add(candidate);
+        files.push(fileInfo(candidate));
+      }
+    } catch {
+      skipped += 1;
+    }
+  }
+
+  return { files, skipped };
+}
+
+const mediaDialogExtensions = Array.from(mediaExtensions).sort();
+
+
 function createWindow() {
+  const smokeReportPath = process.env.WHISPER_DESKTOP_SMOKE_REPORT || "";
+  const smokeScreenshotPath = process.env.WHISPER_DESKTOP_SMOKE_SCREENSHOT || "";
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1120,
-    minHeight: 760,
+    width: 1560,
+    height: 1120,
+    minWidth: 1360,
+    minHeight: 900,
+    show: !smokeReportPath,
+    frame: false,
     title: "Whisper Batch Transcriber",
-    backgroundColor: "#f7f9fc",
+    backgroundColor: "#f8fafc",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -58,6 +136,49 @@ function createWindow() {
     mainWindow.loadURL(devUrl);
   } else {
     mainWindow.loadFile(path.join(desktopDir, "dist", "index.html"));
+  }
+
+  if (smokeReportPath) {
+    mainWindow.webContents.once("did-finish-load", async () => {
+      try {
+        const smokeWaitMs = Number(process.env.WHISPER_DESKTOP_SMOKE_WAIT_MS || 2500);
+        await new Promise((resolve) => setTimeout(resolve, smokeWaitMs));
+        const report = await mainWindow.webContents.executeJavaScript(`
+          (() => {
+            const bodyText = document.body.innerText || "";
+            const buttons = Array.from(document.querySelectorAll("button"))
+              .map((button) => button.innerText.trim())
+              .filter(Boolean);
+            return {
+              title: document.querySelector("h1")?.innerText || "",
+              width: window.innerWidth,
+              height: window.innerHeight,
+              hasDropzone: bodyText.includes("Drop audio or video files here"),
+              hasSetup: bodyText.includes("Transcription Setup"),
+              hasTranslateToEnglish: bodyText.includes("Translate to English"),
+              hasResultPreview: bodyText.includes("Result Preview"),
+              hasFfmpegReady: bodyText.includes("ffmpeg ready"),
+              buttons
+            };
+          })()
+        `);
+
+        if (smokeScreenshotPath) {
+          const image = await mainWindow.capturePage();
+          await fs.promises.mkdir(path.dirname(smokeScreenshotPath), { recursive: true });
+          await fs.promises.writeFile(smokeScreenshotPath, image.toPNG());
+          report.screenshotBytes = image.toPNG().length;
+        }
+
+        await fs.promises.mkdir(path.dirname(smokeReportPath), { recursive: true });
+        await fs.promises.writeFile(smokeReportPath, JSON.stringify(report, null, 2), "utf8");
+        app.quit();
+      } catch (error) {
+        await fs.promises.mkdir(path.dirname(smokeReportPath), { recursive: true });
+        await fs.promises.writeFile(smokeReportPath, JSON.stringify({ error: error.message }, null, 2), "utf8");
+        app.exit(1);
+      }
+    });
   }
 }
 
@@ -125,11 +246,11 @@ ipcMain.handle("dialog:addFiles", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "Audio and video files", extensions: ["mp3", "wav", "m4a", "flac", "aac", "ogg", "opus", "wma", "aiff", "alac", "amr", "mp4", "mov", "mkv", "webm", "avi", "wmv", "m4v", "flv", "mpeg", "mpg", "m2ts", "mts", "ts"] },
+      { name: "Audio and video files", extensions: mediaDialogExtensions },
       { name: "All files", extensions: ["*"] }
     ]
   });
-  return result.canceled ? [] : result.filePaths.map(fileInfo);
+  return result.canceled ? [] : resolveMediaPaths(result.filePaths, false).files;
 });
 
 ipcMain.handle("dialog:addFolder", async (_event, recursive) => {
@@ -137,7 +258,11 @@ ipcMain.handle("dialog:addFolder", async (_event, recursive) => {
     properties: ["openDirectory"]
   });
   if (result.canceled || !result.filePaths[0]) return [];
-  return runWorker("discover", { folder: result.filePaths[0], recursive: Boolean(recursive) });
+  return resolveMediaPaths([result.filePaths[0]], Boolean(recursive)).files;
+});
+
+ipcMain.handle("files:resolveDroppedPaths", async (_event, paths, recursive) => {
+  return resolveMediaPaths(Array.isArray(paths) ? paths : [], Boolean(recursive));
 });
 
 ipcMain.handle("dialog:selectOutputFolder", async () => {
@@ -151,9 +276,42 @@ ipcMain.handle("app:selfTest", async () => {
   return runWorker("self-test");
 });
 
+ipcMain.handle("app:runtimeInfo", async () => {
+  return runWorker("runtime-info");
+});
+
+ipcMain.handle("window:minimize", () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle("window:toggleMaximize", () => {
+  if (!mainWindow) return false;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+    return false;
+  }
+  mainWindow.maximize();
+  return true;
+});
+
+ipcMain.handle("window:close", () => {
+  mainWindow?.close();
+});
+
 ipcMain.handle("shell:openPath", async (_event, folderPath) => {
   if (!folderPath) return;
   await shell.openPath(folderPath);
+});
+
+ipcMain.handle("shell:showItemInFolder", async (_event, filePath) => {
+  if (!filePath) return;
+  shell.showItemInFolder(filePath);
+});
+
+ipcMain.handle("fs:readTextFile", async (_event, filePath) => {
+  if (!filePath) return "";
+  const resolved = path.resolve(filePath);
+  return fs.promises.readFile(resolved, "utf8");
 });
 
 ipcMain.handle("transcription:start", async (_event, payload) => {

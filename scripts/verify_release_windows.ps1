@@ -4,7 +4,12 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
 $Version = "1.1.3"
-$ZipPath = Join-Path $ProjectRoot "release\WhisperBatchTranscriber-$Version-Windows-x64.zip"
+$TorchFlavor = if ($env:WHISPER_RELEASE_TORCH) { $env:WHISPER_RELEASE_TORCH.ToLowerInvariant() } else { "cpu" }
+if ($TorchFlavor -notin @("cpu", "cuda")) {
+    throw "Unsupported WHISPER_RELEASE_TORCH value: $TorchFlavor. Use 'cpu' or 'cuda'."
+}
+$PackageSuffix = if ($TorchFlavor -eq "cuda") { "-CUDA" } else { "" }
+$ZipPath = Join-Path $ProjectRoot "release\WhisperBatchTranscriber-$Version-Windows$PackageSuffix-x64.zip"
 
 if (-not (Test-Path $ZipPath)) {
     throw "Release ZIP not found: $ZipPath"

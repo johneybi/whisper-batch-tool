@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import runtime_manager
 from transcriber_core import (
     TranscriptionOptions,
     _capture_whisper_frame_progress,
@@ -73,6 +74,23 @@ class TranscriberCoreTests(unittest.TestCase):
 
         self.assertEqual(events, [(0, 10), (3, 10), (7, 10)])
         self.assertIs(transcribe_module.tqdm.tqdm, original_tqdm)
+
+    def test_runtime_selection_uses_appdata_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_value = runtime_manager.os.environ.get("WHISPER_BATCH_APPDATA")
+            runtime_manager.os.environ["WHISPER_BATCH_APPDATA"] = temp_dir
+            try:
+                self.assertEqual(runtime_manager.get_selected_runtime(), "bundled")
+                runtime_manager.set_selected_runtime("cuda")
+                self.assertEqual(runtime_manager.get_selected_runtime(), "cuda")
+                activation = runtime_manager.activate_selected_runtime()
+                self.assertEqual(activation.selected, "cuda")
+                self.assertFalse(activation.active)
+            finally:
+                if old_value is None:
+                    runtime_manager.os.environ.pop("WHISPER_BATCH_APPDATA", None)
+                else:
+                    runtime_manager.os.environ["WHISPER_BATCH_APPDATA"] = old_value
 
 
 if __name__ == "__main__":
