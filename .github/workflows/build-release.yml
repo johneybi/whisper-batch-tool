@@ -1,14 +1,11 @@
-name: Build distributable apps
+name: Build legacy PyInstaller apps
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 jobs:
   windows:
-    name: Windows x64
+    name: Legacy Windows x64
     runs-on: windows-latest
 
     steps:
@@ -23,24 +20,24 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Build Windows release
+      - name: Build legacy Windows release
         shell: pwsh
         run: ./scripts/build_release_windows.ps1
 
-      - name: Smoke test Windows app
+      - name: Smoke test legacy Windows app
         shell: pwsh
         run: ./scripts/verify_release_windows.ps1
 
-      - name: Upload Windows artifacts
+      - name: Upload legacy Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WhisperBatchTranscriber-Windows
+          name: WhisperBatchTranscriber-Legacy-PyInstaller-Windows
           path: |
             release/*.zip
             release/*.exe
 
   macos:
-    name: macOS
+    name: Legacy macOS
     runs-on: macos-latest
 
     steps:
@@ -52,19 +49,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build macOS release
+      - name: Build legacy macOS release
         run: |
           chmod +x build_macos.sh scripts/build_release_macos.sh
           ./build_macos.sh
 
-      - name: Smoke test macOS app
+      - name: Smoke test legacy macOS app
         run: |
           dist/WhisperBatchTranscriber.app/Contents/MacOS/WhisperBatchTranscriber --self-test
 
-      - name: Upload macOS artifacts
+      - name: Upload legacy macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WhisperBatchTranscriber-macOS
+          name: WhisperBatchTranscriber-Legacy-PyInstaller-macOS
           path: |
             release/*.zip
             release/*.dmg

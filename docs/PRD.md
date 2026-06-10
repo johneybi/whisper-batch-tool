@@ -2,9 +2,9 @@
 
 ## 1. Overview
 
-Whisper Batch Transcriber is a desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper. The product is intended for non-technical users who need reliable transcription output without manually installing Python, pip packages, or ffmpeg.
+Whisper Batch Transcriber is an Electron/React desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper. The product is intended for non-technical users who need reliable transcription output without manually installing Python, pip packages, or ffmpeg.
 
-The application packages the runtime as OS-specific distributables and provides a simple file-based workflow: add files or folders, select transcription options, start processing, and open generated output files.
+The official product target is the Electron app under `desktop/`. The older Tk/PyInstaller app is retained only as a legacy release path. The application packages or prepares the runtime as OS-specific distributables and provides a simple file-based workflow: add files or folders, select transcription options, start processing, and open generated output files.
 
 ## 2. Problem Statement
 
@@ -145,12 +145,11 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 
 ### Distribution
 
-- Windows release artifacts:
-  - `WhisperBatchTranscriber-1.1.0-Windows-Setup.exe`
-  - `WhisperBatchTranscriber-1.1.0-Windows-x64.zip`
-- macOS release artifacts:
-  - `WhisperBatchTranscriber-1.1.0-macOS.dmg`
-  - `WhisperBatchTranscriber-1.1.0-macOS.zip`
+- Official release artifacts should be generated from the Electron app.
+- Legacy PyInstaller/Tk artifacts may be built manually for historical releases, but they are not the current product target.
+- Windows Electron release artifacts should include an installer and a portable ZIP.
+- macOS Electron release artifacts should include DMG and ZIP packages.
+- The Electron packaging strategy must define how Python, Whisper dependencies, and ffmpeg are bundled or installed.
 - macOS builds are not currently Developer ID signed or notarized, so Gatekeeper warnings are expected.
 
 ## 10. Platform Requirements
@@ -158,12 +157,12 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 ### Windows
 
 - Release builds should run on common x64 Windows environments.
-- Default Windows build should use CPU-compatible Torch for broad compatibility.
-- Optional CUDA build can be produced by setting `WHISPER_RELEASE_TORCH=cuda`.
+- Default Windows release should use CPU-compatible Torch for broad compatibility unless a managed CUDA runtime is explicitly selected.
+- Optional CUDA runtime distribution must be treated as a separate packaging decision because it significantly changes artifact size.
 
 ### macOS
 
-- Release builds should produce both DMG and ZIP artifacts.
+- Electron release builds should produce both DMG and ZIP artifacts.
 - The app should render correctly under macOS appearance settings.
 - The build should pass `--self-test`.
 - Unsigned/unnotarized builds may require users to open the app through Finder's context menu.
@@ -179,7 +178,22 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 python3 -m unittest discover -s tests
 ```
 
-- macOS app self-test passes:
+- Electron desktop build passes:
+
+```bash
+cd desktop
+npm run build
+npm run smoke:render
+```
+
+- Electron worker self-test passes:
+
+```bash
+python desktop/python/worker.py self-test
+python desktop/python/worker.py runtime-info
+```
+
+- Legacy macOS app self-test passes only when building the legacy PyInstaller target:
 
 ```bash
 dist/WhisperBatchTranscriber.app/Contents/MacOS/WhisperBatchTranscriber --self-test
@@ -191,7 +205,7 @@ dist/WhisperBatchTranscriber.app/Contents/MacOS/WhisperBatchTranscriber --self-t
 hdiutil verify release/WhisperBatchTranscriber-1.1.0-macOS.dmg
 ```
 
-- Windows ZIP verification passes:
+- Legacy Windows ZIP verification passes only when building the legacy PyInstaller target:
 
 ```bat
 powershell -ExecutionPolicy Bypass -File scripts\verify_release_windows.ps1
@@ -209,6 +223,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_release_windows.ps1
 
 - First model use may require internet access.
 - Large models can be slow and memory-intensive.
+- Electron packaging is the official target, but final end-user packaging still needs a Python runtime bundling/install policy.
 - macOS Gatekeeper warnings are expected until Developer ID signing and notarization are added.
 - Canceling an active transcription terminates the worker process rather than gracefully unwinding Whisper internals.
 - No speaker diarization or transcript editor is included.

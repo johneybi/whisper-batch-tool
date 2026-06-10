@@ -121,7 +121,12 @@ function createWindow() {
     minWidth: 1360,
     minHeight: 900,
     show: !smokeReportPath,
-    frame: false,
+    titleBarStyle: "hidden",
+    titleBarOverlay: process.platform === "win32" ? {
+      color: "#ffffff",
+      symbolColor: "#101828",
+      height: 48
+    } : true,
     title: "Whisper Batch Transcriber",
     backgroundColor: "#f8fafc",
     webPreferences: {

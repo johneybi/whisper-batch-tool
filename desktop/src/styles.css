@@ -92,6 +92,21 @@ select {
   -webkit-app-region: no-drag;
 }
 
+.studio-header-cutout {
+  position: relative;
+  background: var(--background);
+  clip-path: path("M 64 0 L 64 48 L 0 48 C 18 48 26 42 35 31 L 49 14 C 55 6 58 2 64 0 Z");
+}
+
+.studio-header-cutout::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-bottom-left-radius: 28px;
+  box-shadow: inset 1px 1px 0 rgba(223, 230, 239, 0.85);
+}
+
 .studio-section-shell {
   --section-shell-bg: #e9eef5;
   --section-shell-contrast: #ffffff;

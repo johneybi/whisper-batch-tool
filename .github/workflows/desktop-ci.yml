@@ -1,0 +1,61 @@
+name: Desktop target CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  windows:
+    name: Electron desktop on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Python unit tests
+        run: python -m unittest discover -s tests
+
+      - name: Run Electron worker self-test
+        run: python desktop/python/worker.py self-test
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Electron renderer
+        working-directory: desktop
+        run: npm run build
+
+      - name: Smoke render Electron app
+        working-directory: desktop
+        env:
+          WHISPER_PYTHON: ${{ env.pythonLocation }}\python.exe
+        run: npm run smoke:render
+
+      - name: Upload smoke screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-smoke-windows
+          path: |
+            .tmp-smoke/desktop-smoke.json
+            .tmp-smoke/desktop-smoke.png

@@ -11,6 +11,10 @@ APP_PATH="dist/${APP_NAME}.app"
 DMG_PATH="${RELEASE_DIR}/${APP_NAME}-${VERSION}-macOS.dmg"
 ZIP_PATH="${RELEASE_DIR}/${APP_NAME}-${VERSION}-macOS.zip"
 
+echo "WARNING: This builds the legacy Tk/PyInstaller app."
+echo "WARNING: The official product target is the Electron app under desktop/."
+echo "WARNING: Do not attach these artifacts to a new official GitHub Release unless it is explicitly marked as legacy."
+
 mkdir -p "${RELEASE_DIR}"
 
 if [ "${WHISPER_CLEAN_RELEASE_VENV:-0}" = "1" ] && [ -d "${VENV_DIR}" ]; then

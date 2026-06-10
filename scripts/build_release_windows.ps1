@@ -14,6 +14,9 @@ $ReleaseDir = Join-Path $ProjectRoot "release"
 $DistApp = Join-Path $ProjectRoot "dist\WhisperBatchTranscriber"
 $ZipPath = Join-Path $ReleaseDir "WhisperBatchTranscriber-$Version-Windows$PackageSuffix-x64.zip"
 
+Write-Warning "This builds the legacy Tk/PyInstaller app. The official product target is the Electron app under desktop/."
+Write-Warning "Do not attach these artifacts to a new official GitHub Release unless it is explicitly marked as legacy."
+
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
 
 if ($env:WHISPER_CLEAN_RELEASE_VENV -eq "1" -and (Test-Path $VenvDir)) {

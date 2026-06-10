@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Build Whisper Batch Transcriber Release
+title Build Whisper Batch Transcriber Legacy Release
 
 cd /d "%~dp0"
 

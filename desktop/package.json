@@ -2,7 +2,7 @@
   "name": "whisper-batch-transcriber-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Electron/React prototype UI for Whisper Batch Transcriber.",
+  "description": "Official Electron/React desktop app for Whisper Batch Transcriber.",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -20,6 +20,7 @@
     "cross-env": "^10.0.0",
     "electron": "^39.0.0",
     "lucide-react": "^0.468.0",
+    "motion": "^12.40.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.6.0",

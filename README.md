@@ -1,176 +1,119 @@
 # Whisper Batch Transcriber
 
-Whisper 기반 오디오/비디오 배치 전사 GUI 앱입니다. 목표는 최종 사용자가 Python, pip, ffmpeg를 직접 설치하지 않고도 배포 파일을 받아 실행하게 만드는 것입니다.
+Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
 
-## 최종 사용자에게 배포할 파일
+## Current Target
 
-최종 사용자는 GitHub의 Releases 페이지에서 본인 OS에 맞는 파일을 다운로드하면 됩니다. 배포자는 OS별로 빌드한 뒤 `release/` 폴더의 산출물을 GitHub Release에 첨부합니다.
+- 공식 앱: Electron/React/shadcn desktop app in `desktop/`
+- 공유 전사 코어: `transcriber_core.py`
+- Electron worker: `desktop/python/worker.py`
+- Legacy 앱: `whisper_gui.py`, `WhisperBatchTranscriber.spec`, 기존 PyInstaller release scripts
 
-- Windows: `WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
-- Windows 대체 배포: `WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
-- macOS: `WhisperBatchTranscriber-1.1.3-macOS.dmg`
-- macOS 대체 배포: `WhisperBatchTranscriber-1.1.3-macOS.zip`
+GitHub Releases에는 앞으로 Electron 앱 산출물을 올리는 것을 기준으로 합니다. 기존 PyInstaller 산출물은 새 공식 릴리스로 자동 게시하지 않습니다.
 
-릴리스에 첨부된 파일만 받으면 됩니다. Python과 ffmpeg를 따로 설치하지 않아도 됩니다. Whisper 모델은 첫 사용 시 선택한 모델을 자동 다운로드하므로 인터넷 연결이 필요할 수 있습니다.
+## Development
 
-## 최종 사용자 사용법
+Windows에서 현재 공식 Electron 앱을 실행합니다.
 
-Windows 설치 파일:
-
-1. `WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`를 실행합니다.
-2. 시작 메뉴 또는 바탕화면 바로가기로 앱을 실행합니다.
-3. `Add Files` 또는 `Add Folder`로 파일을 추가하고 `Start`를 누릅니다.
-
-Windows ZIP:
-
-1. ZIP을 압축 해제합니다.
-2. `WhisperBatchTranscriber.exe`를 실행합니다.
-
-배포 검증용으로는 다음 명령을 실행할 수 있습니다. 종료 코드가 `0`이면 앱 번들이 ffmpeg 런타임을 정상적으로 찾은 것입니다.
-
-```bat
-WhisperBatchTranscriber.exe --self-test
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1
 ```
 
-macOS DMG:
+처음 실행하거나 desktop 의존성을 다시 설치해야 하면 `-Install`을 붙입니다.
 
-1. DMG를 열고 앱을 Applications 폴더로 옮깁니다.
-2. `Whisper Batch Transcriber` 앱을 실행합니다.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1 -Install
+```
 
-macOS에서 "확인되지 않은 개발자" 경고가 나올 수 있습니다. 현재 배포물은 Apple Developer ID 서명/공증을 거치지 않은 빌드이므로, 처음 실행할 때는 Finder에서 앱을 Control-클릭한 뒤 `열기`를 선택해야 할 수 있습니다.
+Electron 앱은 `WHISPER_PYTHON`이 있으면 그 값을 사용합니다. 없으면 루트의 `.release-venv`, `venv`, `C:\whisper\torch-env\Scripts\python.exe`, 시스템 Python 순서로 worker 실행 Python을 찾습니다.
 
-## 지원 입력 포맷
+## Verification
 
-앱은 ffmpeg 런타임을 번들에 포함하거나 자동 준비하도록 구성되어 있습니다. 대표적으로 다음 파일을 처리할 수 있습니다.
+Python 코어 테스트:
 
-- 오디오: `mp3`, `wav`, `m4a`, `flac`, `aac`, `ogg`, `opus`, `wma`, `aiff`, `alac`, `amr`
-- 비디오: `mp4`, `mov`, `mkv`, `webm`, `avi`, `wmv`, `m4v`, `flv`, `mpeg`, `mpg`, `m2ts`, `mts`, `ts`
+```powershell
+python -m unittest discover -s tests
+```
 
-목록에 없는 확장자도 ffmpeg가 읽을 수 있으면 처리 시도합니다.
+Electron UI 빌드와 렌더 smoke:
 
-## 출력 포맷
+```powershell
+cd desktop
+npm run build
+npm run smoke:render
+```
 
-- `TXT`: 전체 텍스트와 시간대별 세그먼트
+Worker self-test:
+
+```powershell
+python desktop\python\worker.py self-test
+python desktop\python\worker.py runtime-info
+```
+
+## Distribution Direction
+
+배포 기준은 Electron 앱입니다.
+
+1. `desktop/` 앱을 공식 사용자 경험으로 유지합니다.
+2. `transcriber_core.py`는 Electron worker와 legacy Tk 앱이 공유할 수 있지만, 새 기능은 Electron 경로에서 먼저 검증합니다.
+3. GitHub Actions의 기본 CI는 Electron 앱 빌드와 worker self-test를 검증합니다.
+4. 기존 PyInstaller release workflow는 legacy 수동 빌드로만 유지합니다.
+5. Electron 패키징이 추가되기 전까지 GitHub Release에는 legacy PyInstaller 산출물을 새 공식 릴리스로 올리지 않습니다.
+
+Electron 패키징을 제품 릴리스로 완성하려면 다음 단계에서 Windows installer/portable ZIP, macOS DMG/ZIP, Python runtime 포함 정책을 확정해야 합니다.
+
+## Supported Inputs
+
+ffmpeg가 처리할 수 있는 일반적인 오디오/비디오 파일을 대상으로 합니다.
+
+- Audio: `mp3`, `wav`, `m4a`, `flac`, `aac`, `ogg`, `opus`, `wma`, `aiff`, `alac`, `amr`
+- Video: `mp4`, `mov`, `mkv`, `webm`, `avi`, `wmv`, `m4v`, `flv`, `mpeg`, `mpg`, `m2ts`, `mts`, `ts`
+
+## Output Formats
+
+- `TXT`: 전체 텍스트와 세그먼트
 - `SRT`: 일반 자막
 - `VTT`: 웹 자막
-- `JSON`: Whisper 원본 결과에 가까운 구조화 데이터
+- `JSON`: Whisper 결과에 가까운 구조화 데이터
 - `TSV`: 세그먼트 표 데이터
 
-## 배포자 빌드 방법
+## Legacy PyInstaller App
 
-빌드는 OS별 네이티브 환경에서 진행합니다. Windows 앱은 Windows에서, macOS 앱은 macOS에서 빌드하는 방식이 가장 안정적입니다.
+기존 Tk 앱은 유지보수와 이전 릴리스 재생성을 위해 남겨 둡니다.
 
-GitHub 저장소에서 배포한다면 Actions 탭의 `Build distributable apps` 워크플로를 수동 실행하거나 `v*` 태그를 푸시하면 Windows와 macOS 산출물을 자동으로 만들 수 있습니다.
+Windows legacy 실행:
 
-릴리스 빌드는 개발용 `venv`와 분리된 `.release-venv`를 사용합니다. 깨끗한 환경에서 다시 만들려면 `WHISPER_CLEAN_RELEASE_VENV=1`을 지정합니다.
-
-### Windows 릴리스 빌드
-
-필요 도구:
-
-- Python 3.10 이상
-- 선택 사항: Inno Setup, 설치형 `.exe` 생성용. `PATH`에 없어도 기본 설치 위치인 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`를 자동 탐색합니다.
-
-빌드:
-
-```bat
-build_windows.bat
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dev_windows.ps1
 ```
 
-Windows 기본 배포 빌드는 CPU 전용 Torch를 포함합니다. NVIDIA GPU를 쓰려면 앱 설치 후 Device 영역의 `Install CUDA runtime`을 눌러 CUDA PyTorch를 사용자 프로필에 추가 설치한 뒤 앱을 재시작하고 `cuda`를 선택합니다.
+Windows legacy 빌드:
 
-오프라인 배포처럼 CUDA용 Torch까지 미리 포함한 빌드를 따로 만들려면 다음처럼 실행합니다.
-
-```bat
-set WHISPER_RELEASE_TORCH=cuda
-build_windows.bat
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_release_windows.ps1
 ```
 
-결과:
-
-- 기본 ZIP: `release/WhisperBatchTranscriber-1.1.3-Windows-x64.zip`
-- 기본 설치 파일: `release/WhisperBatchTranscriber-1.1.3-Windows-Setup.exe`
-- 오프라인 CUDA ZIP: `release/WhisperBatchTranscriber-1.1.3-Windows-CUDA-x64.zip`
-- 오프라인 CUDA 설치 파일: `release/WhisperBatchTranscriber-1.1.3-Windows-CUDA-Setup.exe`
-
-Windows ZIP을 배포하기 전에 다음 검증을 실행합니다. ZIP을 임시 폴더에 풀고, 시스템 ffmpeg가 없는 PATH에서 앱 self-test를 통과해야 성공합니다.
-
-```bat
-powershell -ExecutionPolicy Bypass -File scripts\verify_release_windows.ps1
-```
-
-### macOS 릴리스 빌드
-
-필요 도구:
-
-- Python 3.10 이상
-- macOS 기본 `hdiutil`
-
-빌드:
+macOS legacy 빌드:
 
 ```bash
 chmod +x build_macos.sh scripts/build_release_macos.sh
 ./build_macos.sh
 ```
 
-결과:
+이 경로는 더 이상 새 공식 UI 배포 경로가 아닙니다.
 
-- `release/WhisperBatchTranscriber-1.1.3-macOS.dmg`
-- `release/WhisperBatchTranscriber-1.1.3-macOS.zip`
+## Important Files
 
-## 개발자 직접 실행
-
-배포 파일을 만들지 않고 개발 환경에서 직접 실행할 때만 사용합니다.
-
-Windows:
-
-```bat
-install_gui.bat
-run_gui.bat
-```
-
-macOS:
-
-```bash
-chmod +x install_gui.sh run_gui.sh
-./install_gui.sh
-./run_gui.sh
-```
-
-### Electron/React 데스크톱 UI
-
-레퍼런스 이미지에 가까운 새 데스크톱 UI는 `desktop/` 아래 Electron/React/shadcn 기반 앱으로 분리되어 있으며, 기존 Python 전사 코어를 그대로 사용합니다. Windows에서 이 UI를 확인할 때는 루트에서 전용 스크립트를 실행합니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1
-```
-
-처음 실행하거나 의존성을 다시 설치해야 하면 `-Install`을 붙입니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1 -Install
-```
-
-`scripts\run_dev_windows.ps1`는 기존 `whisper_gui.py` Tk GUI를 실행합니다. shadcn/Electron 화면, 파일 드롭 경로, 파일 선택 대화상자, 전사 IPC를 확인하려면 `run_desktop_dev_windows.ps1`를 사용해야 합니다. 브라우저 preview 모드는 레이아웃 확인용이며 Electron 전용 기능은 동작하지 않습니다.
-
-Electron 앱은 `WHISPER_PYTHON`이 있으면 그 값을 사용하고, 없으면 루트의 `.release-venv`, `venv`, `C:\whisper\torch-env\Scripts\python.exe` 순서로 Python을 찾습니다.
-
-## 개발자 검증
-
-모델 다운로드나 ffmpeg 없이 코어 출력 로직을 빠르게 확인할 수 있습니다.
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-## 주요 파일
-
-- `whisper_gui.py`: GUI 진입점
-- `transcriber_core.py`: 전사 코어, 출력 생성, ffmpeg 런타임 준비
-- `requirements.txt`: GUI 앱 런타임 Python 의존성
-- `tests/`: 모델 다운로드 없이 실행 가능한 코어 회귀 테스트
-- `WhisperBatchTranscriber.spec`: PyInstaller 앱 번들 설정
-- `scripts/build_release_windows.ps1`: Windows 릴리스 빌드
-- `scripts/verify_release_windows.ps1`: Windows ZIP 배포물 검증
-- `scripts/build_release_macos.sh`: macOS 릴리스 빌드
-- `packaging/windows_installer.iss`: Windows 설치 프로그램 설정
+- `desktop/`: 공식 Electron/React 데스크톱 앱
+- `desktop/electron/main.cjs`: Electron main process와 IPC
+- `desktop/electron/preload.cjs`: renderer에 노출되는 안전 API 표면
+- `desktop/python/worker.py`: Electron에서 호출하는 Python worker
+- `desktop/src/`: React UI
+- `transcriber_core.py`: Whisper 전사 코어, 출력 생성, ffmpeg 준비
+- `runtime_manager.py`: legacy 앱의 runtime 선택/설치 관리
+- `tests/`: 모델 다운로드 없이 빠르게 실행 가능한 코어 테스트
+- `whisper_gui.py`: legacy Tk GUI
+- `WhisperBatchTranscriber.spec`: legacy PyInstaller 설정
+- `scripts/build_release_windows.ps1`: legacy Windows PyInstaller 빌드
+- `.github/workflows/desktop-ci.yml`: 공식 Electron 타깃 CI
+- `.github/workflows/build-release.yml`: legacy PyInstaller 수동 빌드

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
-  Box,
   CheckCircle2,
   CircleHelp,
   ClipboardCopy,
@@ -176,6 +176,7 @@ function statusBadgeVariant(status) {
 }
 
 function App() {
+  const reduceMotion = useReducedMotion();
   const [files, setFiles] = useState([]);
   const [selectedFilePath, setSelectedFilePath] = useState("");
   const [ffmpeg, setFfmpeg] = useState({ state: "checking", detail: "확인 중" });
@@ -242,6 +243,12 @@ function App() {
     label: extensionOf(filePath)
   })) ?? [];
   const previewText = previewContent || selectedFile?.previewText || "";
+  const springTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring", stiffness: 420, damping: 34, mass: 0.7 };
+  const easeTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
   const commands = [
     { label: "Add files", action: addFiles },
     { label: "Add folder", action: addFolder },
@@ -632,52 +639,40 @@ function App() {
   }
 
   return (
-    <main className="grid h-screen min-h-[900px] min-w-[1360px] grid-rows-[88px_1fr_56px] overflow-hidden bg-background text-foreground">
-      <header className="studio-titlebar studio-card-shadow flex min-h-0 items-center justify-between gap-8 rounded-none border-x-0 border-t-0 border-b border-border bg-card px-6">
-        <section className="flex min-w-0 items-center gap-4">
+    <main className="grid h-screen min-h-[900px] min-w-[1360px] grid-rows-[96px_1fr_56px] overflow-hidden bg-background text-foreground">
+      <header className="studio-titlebar relative grid grid-cols-[430px_1fr] grid-rows-[48px_48px] overflow-hidden border-b border-border/70 bg-card">
+        <section className="row-span-2 flex min-w-0 items-center gap-4 px-6">
           <LogoMark />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-normal">Whisper Studio</h1>
+            <h1 className="text-2xl font-extrabold tracking-normal">Whisper Studio</h1>
             <p className="mt-1 truncate text-sm text-muted-foreground">
-              로컬에서 음성·영상 파일을 안전하게 텍스트와 자막으로 변환합니다.
+              로컬 전사 · 자막 생성 · 기기 안에서 처리
             </p>
           </div>
         </section>
-        <nav className="studio-no-drag flex shrink-0 items-center gap-3">
-          <Badge
-            className="h-9 gap-2 rounded-lg border-transparent bg-emerald-50 px-4 text-sm text-emerald-700 shadow-none"
-            title={ffmpeg.detail}
-          >
-            {ffmpeg.state === "checking" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
-            {ffmpeg.state === "ok" ? "ffmpeg ready" : ffmpeg.state === "missing" ? "ffmpeg check needed" : "checking ffmpeg"}
-          </Badge>
-          <Badge className="h-9 gap-2 rounded-lg bg-card px-4 text-sm shadow-sm" variant="outline">
-            <ShieldCheck className="h-4 w-4" /> Local only
-          </Badge>
-          <Badge className="h-9 gap-2 rounded-lg bg-card px-4 text-sm shadow-sm" variant="outline">
-            <Laptop className="h-4 w-4" /> {runtimeInfo.cudaAvailable ? "CUDA ready" : runtimeInfo.mpsAvailable ? "MPS ready" : "CPU / Auto"}
-          </Badge>
-          <Badge className="h-9 gap-2 rounded-lg bg-card px-4 text-sm shadow-sm" variant="outline">
-            <Box className="h-4 w-4" /> Whisper {options.model_name}
-          </Badge>
-          <Button className="h-10 min-w-[116px] justify-start text-muted-foreground" variant="outline" onClick={() => setCommandOpen(true)}>
-            <Search className="h-4 w-4" /> Ctrl+K
-          </Button>
-          <div className="h-8 w-px bg-border" />
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="설정"
-            title="Advanced settings 열기"
-            onClick={() => setAdvancedOpen(true)}
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="도움말" onClick={() => setHelpOpen((open) => !open)}>
-            <CircleHelp className="h-5 w-5" />
-          </Button>
-          <div className="h-8 w-px bg-border" />
-          <div className="flex items-center gap-1">
+
+        <div className="col-start-2 flex h-12 items-center justify-end px-6">
+          <div className="studio-no-drag flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:bg-muted"
+              aria-label="설정"
+              title="Advanced settings 열기"
+              onClick={() => setAdvancedOpen(true)}
+            >
+              <Settings className="h-4.5 w-4.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:bg-muted"
+              aria-label="도움말"
+              onClick={() => setHelpOpen((open) => !open)}
+            >
+              <CircleHelp className="h-4.5 w-4.5" />
+            </Button>
+            <div className="mx-1 h-7 w-px bg-border" />
             <Button
               variant="ghost"
               size="icon"
@@ -707,7 +702,33 @@ function App() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-        </nav>
+        </div>
+
+        <div className="studio-no-drag col-start-2 row-start-2 flex h-12 items-end justify-end">
+          <div className="studio-header-cutout h-12 w-16 shrink-0" />
+          <div className="flex h-12 flex-1 items-center justify-start gap-2.5 bg-background pl-1 pr-6">
+            <Badge
+              className="h-8 gap-2 rounded-lg border-transparent bg-emerald-50 px-3.5 text-xs text-emerald-700 shadow-none"
+              title={ffmpeg.detail}
+            >
+              {ffmpeg.state === "checking" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+              {ffmpeg.state === "ok" ? "ffmpeg ready" : ffmpeg.state === "missing" ? "ffmpeg check needed" : "checking ffmpeg"}
+            </Badge>
+            <Badge className="h-8 gap-2 rounded-lg bg-background px-3.5 text-xs shadow-none" variant="outline">
+              <ShieldCheck className="h-3.5 w-3.5" /> Local only
+            </Badge>
+            <Badge
+              className={cn(
+                "h-8 gap-2 rounded-lg bg-background px-3.5 text-xs shadow-none",
+                !runtimeInfo.cudaAvailable && !runtimeInfo.mpsAvailable && "border-amber-200 bg-amber-50 text-amber-800"
+              )}
+              variant="outline"
+              title={runtimeInfo.label}
+            >
+              <Laptop className="h-3.5 w-3.5" /> {runtimeInfo.cudaAvailable ? "CUDA ready" : runtimeInfo.mpsAvailable ? "MPS ready" : "CPU / Auto"}
+            </Badge>
+          </div>
+        </div>
       </header>
 
       <div className="grid min-h-0 grid-cols-[minmax(760px,1fr)_520px] gap-3 p-3">
@@ -737,25 +758,37 @@ function App() {
               </div>
             </CardHeader>
             <CardContent className="grid min-h-0 flex-1 grid-rows-[286px_1fr] gap-5">
-              <div
+              <motion.div
                 className={cn(
                   "studio-soft-panel relative grid min-h-0 place-items-center rounded-lg border border-dashed border-[#d7dfe9] px-6 text-center transition-all duration-150",
                   dropActive && "border-primary bg-blue-50/90 shadow-[inset_0_0_0_2px_rgba(23,105,245,0.16),0_18px_45px_rgba(23,105,245,0.12)]"
                 )}
+                animate={{
+                  scale: dropActive ? 1.012 : 1,
+                  y: dropActive ? -2 : 0
+                }}
+                transition={springTransition}
+                whileHover={reduceMotion ? undefined : { y: -1 }}
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
-                <div className={cn("space-y-4 transition-transform duration-150", dropActive && "scale-[1.02]")}>
-                  <div
+                <motion.div
+                  className="space-y-4"
+                  animate={{ scale: dropActive ? 1.015 : 1 }}
+                  transition={springTransition}
+                >
+                  <motion.div
                     className={cn(
                       "mx-auto grid h-14 w-20 place-items-center rounded-full bg-primary/10 text-primary transition-colors",
                       dropActive && "bg-primary text-primary-foreground"
                     )}
+                    animate={{ rotate: dropActive ? -3 : 0 }}
+                    transition={springTransition}
                   >
                     <CloudUpload className="h-8 w-8" />
-                  </div>
+                  </motion.div>
                   <div>
                     <p className="text-base font-bold">
                       {dropActive ? "Release to add files" : "Drop audio or video files here"}
@@ -773,8 +806,8 @@ function App() {
                     />
                     Include subfolders
                   </Label>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
 
               <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
                 <div className="grid h-11 shrink-0 grid-cols-[44px_minmax(240px,1fr)_110px_110px_110px_150px_42px] items-center border-b bg-[#fbfcfe] px-4 text-sm font-medium text-muted-foreground">
@@ -1138,8 +1171,15 @@ function App() {
         </Button>
       </footer>
 
-      {logOpen && (
-        <div className="fixed bottom-20 right-5 z-50 w-[560px] rounded-2xl border bg-popover p-4 shadow-xl">
+      <AnimatePresence>
+        {logOpen && (
+          <motion.div
+            className="fixed bottom-20 right-5 z-50 w-[560px] rounded-2xl border bg-popover p-4 shadow-xl"
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={easeTransition}
+          >
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-bold">Activity Log</h2>
             <Button size="icon" variant="ghost" onClick={() => setLogOpen(false)}><X className="h-4 w-4" /></Button>
@@ -1163,11 +1203,19 @@ function App() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {helpOpen && (
-        <div className="fixed right-5 top-24 z-50 w-[440px] rounded-2xl border bg-popover p-4 shadow-xl">
+      <AnimatePresence>
+        {helpOpen && (
+          <motion.div
+            className="fixed right-5 top-24 z-50 w-[440px] rounded-2xl border bg-popover p-4 shadow-xl"
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={easeTransition}
+          >
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-bold">기능 안내</h2>
             <Button size="icon" variant="ghost" onClick={() => setHelpOpen(false)}><X className="h-4 w-4" /></Button>
@@ -1179,12 +1227,28 @@ function App() {
             <p><strong className="text-foreground">Output</strong>: 선택한 TXT/SRT/VTT/JSON/TSV 파일을 원본 옆 또는 지정 폴더에 저장합니다.</p>
             <p><strong className="text-foreground">Device</strong>: {runtimeInfo.label}</p>
           </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {commandOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/20 pt-24" onClick={() => setCommandOpen(false)}>
-          <div className="w-[520px] rounded-2xl border bg-popover p-3 shadow-xl" onClick={(event) => event.stopPropagation()}>
+      <AnimatePresence>
+        {commandOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/20 pt-24"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={easeTransition}
+            onClick={() => setCommandOpen(false)}
+          >
+          <motion.div
+            className="w-[520px] rounded-2xl border bg-popover p-3 shadow-xl"
+            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={springTransition}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="flex items-center gap-2 border-b px-2 pb-3">
               <Search className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-semibold">Command palette</span>
@@ -1205,9 +1269,10 @@ function App() {
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
