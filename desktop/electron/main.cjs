@@ -2,17 +2,19 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const {
+  createOutputAccessStore,
+  isMediaFile,
+  mediaExtensions,
+  validatePathArray,
+  validateTranscriptionPayload
+} = require("./ipcSecurity.cjs");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 const desktopDir = path.resolve(__dirname, "..");
 let mainWindow = null;
 let activeWorker = null;
-
-const mediaExtensions = new Set([
-  "aac", "aiff", "alac", "amr", "ape", "au", "caf", "dts", "flac", "m4a", "m4b", "mid", "midi", "mp3", "oga", "ogg",
-  "opus", "ra", "snd", "tta", "voc", "wav", "weba", "wma", "wv", "3g2", "3gp", "asf", "avi", "divx", "dv", "f4v",
-  "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "mxf", "ogv", "rm", "rmvb", "ts", "vob", "webm", "wmv"
-]);
+const outputAccess = createOutputAccessStore();
 
 function pythonExecutable() {
   if (process.env.WHISPER_PYTHON) {
@@ -51,10 +53,6 @@ function fileInfo(filePath) {
     format: path.extname(filePath).replace(".", "").toUpperCase() || "MEDIA",
     sizeMb: Math.round(stat.size / (1024 * 1024))
   };
-}
-
-function isMediaFile(filePath) {
-  return mediaExtensions.has(path.extname(filePath).replace(".", "").toLowerCase());
 }
 
 function discoverMediaFiles(folderPath, recursive) {
@@ -267,7 +265,8 @@ ipcMain.handle("dialog:addFolder", async (_event, recursive) => {
 });
 
 ipcMain.handle("files:resolveDroppedPaths", async (_event, paths, recursive) => {
-  return resolveMediaPaths(Array.isArray(paths) ? paths : [], Boolean(recursive));
+  const inputPaths = validatePathArray(paths, "paths", { allowEmpty: true });
+  return resolveMediaPaths(inputPaths, Boolean(recursive));
 });
 
 ipcMain.handle("dialog:selectOutputFolder", async () => {
@@ -303,19 +302,21 @@ ipcMain.handle("window:close", () => {
   mainWindow?.close();
 });
 
-ipcMain.handle("shell:openPath", async (_event, folderPath) => {
-  if (!folderPath) return;
-  await shell.openPath(folderPath);
+ipcMain.handle("shell:openPath", async (_event, targetPath) => {
+  if (!targetPath) return;
+  const allowedPath = outputAccess.assertShellOutputTarget(targetPath);
+  await shell.openPath(allowedPath);
 });
 
 ipcMain.handle("shell:showItemInFolder", async (_event, filePath) => {
   if (!filePath) return;
-  shell.showItemInFolder(filePath);
+  const allowedPath = outputAccess.assertShellOutputTarget(filePath, { requireFile: true });
+  shell.showItemInFolder(allowedPath);
 });
 
 ipcMain.handle("fs:readTextFile", async (_event, filePath) => {
   if (!filePath) return "";
-  const resolved = path.resolve(filePath);
+  const resolved = outputAccess.assertReadableOutputFile(filePath);
   return fs.promises.readFile(resolved, "utf8");
 });
 
@@ -323,6 +324,8 @@ ipcMain.handle("transcription:start", async (_event, payload) => {
   if (activeWorker) {
     throw new Error("A transcription job is already running.");
   }
+  const safePayload = validateTranscriptionPayload(payload);
+  outputAccess.reset();
 
   return new Promise((resolve, reject) => {
     const child = spawn(pythonExecutable(), [workerPath(), "transcribe"], {
@@ -345,6 +348,9 @@ ipcMain.handle("transcription:start", async (_event, payload) => {
           const message = JSON.parse(line);
           if (message.type === "done") {
             finalPayload = message.payload ?? null;
+            outputAccess.addOutputFiles(finalPayload?.output_files);
+          } else if (message.type === "file-state" && message.payload?.state === "done") {
+            outputAccess.addOutputFiles(message.payload.outputFiles);
           }
           mainWindow?.webContents.send("transcription:event", message);
         } catch {
@@ -376,7 +382,7 @@ ipcMain.handle("transcription:start", async (_event, payload) => {
       }
     });
 
-    child.stdin.write(JSON.stringify(payload));
+    child.stdin.write(JSON.stringify(safePayload));
     child.stdin.end();
   });
 });

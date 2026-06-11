@@ -41,6 +41,10 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: Run Electron IPC security tests
+        working-directory: desktop
+        run: npm run test:security
+
       - name: Build Electron renderer
         working-directory: desktop
         run: npm run build
