@@ -27,6 +27,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_desktop_dev_windows.ps1 -
 
 Electron 앱은 `WHISPER_PYTHON`이 있으면 그 값을 사용합니다. 없으면 루트의 `.release-venv`, `venv`, `C:\whisper\torch-env\Scripts\python.exe`, 시스템 Python 순서로 worker 실행 Python을 찾습니다.
 
+## Live Transcription Integration
+
+Electron 앱은 상단에서 `일반 파일 전사`와 `실시간 전사` 두 작업으로 전환합니다. 실시간 전사는 검증된 Auto News Scripter 네이티브 런타임을 로컬 서비스로 시작하고 다음 기능을 제공합니다.
+
+- YouTube 라이브 또는 일반 영상 URL 전사
+- 방송 시작점 또는 현재 라이브 지점 선택
+- 15/30/60초 연속 청크 전사
+- 최대 두 방송 동시 캡처와 실행별 중지
+- `E:\auto-news-scripter\data\knowledge`에 누적 전사 저장
+
+Windows 기본 통합 경로는 `E:\auto-news-scripter`입니다. 다른 위치에서는 환경 변수로 지정합니다.
+
+```powershell
+$env:AUTO_NEWS_SCRIPTER_ROOT = "D:\tools\auto-news-scripter"
+```
+
+해당 프로젝트의 `.venv`와 FFmpeg 설정이 먼저 준비되어 있어야 합니다. Electron은 라이브 서비스를 자동으로 시작하고 앱 종료 시 자신이 시작한 서비스만 종료합니다. 일반 파일 전사와 실시간 전사는 GPU 메모리 충돌을 피하기 위해 동시에 실행되지 않습니다.
+
 ## Verification
 
 Python 코어 테스트:
@@ -107,6 +125,8 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 - `desktop/`: 공식 Electron/React 데스크톱 앱
 - `desktop/electron/main.cjs`: Electron main process와 IPC
 - `desktop/electron/preload.cjs`: renderer에 노출되는 안전 API 표면
+- `desktop/electron/liveService.cjs`: Auto News Scripter 라이브 서비스 수명주기와 API 어댑터
+- `desktop/src/LiveTranscriptionWorkspace.jsx`: 실시간 전사 작업 화면
 - `desktop/python/worker.py`: Electron에서 호출하는 Python worker
 - `desktop/src/`: React UI
 - `transcriber_core.py`: Whisper 전사 코어, 출력 생성, ffmpeg 준비

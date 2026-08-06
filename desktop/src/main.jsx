@@ -39,6 +39,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import "./styles.css";
+import { LiveTranscriptionWorkspace } from "./LiveTranscriptionWorkspace";
 
 const defaultFormats = { txt: true, srt: true, vtt: false, json: false, tsv: false };
 
@@ -53,6 +54,10 @@ const mockDesktopApi = {
   runtimeInfo: async () => ({ label: "Electron 앱에서 실행하면 장치 상태를 확인합니다." }),
   startTranscription: async () => ({ ok: true }),
   cancelTranscription: async () => undefined,
+  initializeLiveService: async () => ({ ready: false, detail: "Electron 앱에서 실시간 엔진을 시작합니다." }),
+  listLiveRuns: async () => [],
+  startLiveTranscription: async () => undefined,
+  stopLiveTranscription: async () => undefined,
   cancelFileScan: async () => undefined,
   readTextFile: async () => "",
   openPath: async () => undefined,
@@ -177,6 +182,7 @@ function statusBadgeVariant(status) {
 }
 
 function App() {
+  const [mode, setMode] = useState("file");
   const reduceMotion = useReducedMotion();
   const [files, setFiles] = useState([]);
   const [selectedFilePath, setSelectedFilePath] = useState("");
@@ -684,7 +690,7 @@ function App() {
   }
 
   return (
-    <main className="grid h-screen min-h-[900px] min-w-[1360px] grid-rows-[96px_1fr_56px] overflow-hidden bg-background text-foreground">
+    <main className="relative grid h-screen min-h-[900px] min-w-[1360px] grid-rows-[96px_1fr_56px] overflow-hidden bg-background text-foreground">
       <header className="studio-titlebar relative grid grid-cols-[430px_1fr] grid-rows-[48px_48px] overflow-hidden border-b border-border/70 bg-card">
         <section className="row-span-2 flex min-w-0 items-center gap-4 px-6">
           <LogoMark />
@@ -752,6 +758,11 @@ function App() {
         <div className="studio-no-drag col-start-2 row-start-2 flex h-12 items-end justify-end">
           <div className="studio-header-cutout h-12 w-16 shrink-0" />
           <div className="flex h-12 flex-1 items-center justify-start gap-2.5 bg-background pl-1 pr-6">
+            <div className="flex h-9 items-center rounded-lg border bg-card p-1">
+              <Button className="h-7 px-3" size="sm" variant={mode === "file" ? "default" : "ghost"} onClick={() => setMode("file")}>일반 파일 전사</Button>
+              <Button className="h-7 px-3" size="sm" variant={mode === "live" ? "default" : "ghost"} onClick={() => setMode("live")}>실시간 전사</Button>
+            </div>
+            <span className="h-6 w-px bg-border" />
             <Badge
               className="h-8 gap-2 rounded-lg border-transparent bg-emerald-50 px-3.5 text-xs text-emerald-700 shadow-none"
               title={ffmpeg.detail}
@@ -775,6 +786,12 @@ function App() {
           </div>
         </div>
       </header>
+
+      {mode === "live" && (
+        <div className="absolute inset-x-0 bottom-0 top-24 z-20 grid grid-rows-[1fr_56px] bg-background">
+          <LiveTranscriptionWorkspace api={api} onLog={addLog} />
+        </div>
+      )}
 
       <div className="grid min-h-0 grid-cols-[minmax(760px,1fr)_520px] gap-3 p-3">
         <section className="grid min-h-0 grid-rows-[1fr_104px] gap-3">

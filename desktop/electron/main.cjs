@@ -10,6 +10,7 @@ const {
 } = require("./ipcSecurity.cjs");
 const { discoverMediaPaths } = require("./mediaDiscovery.cjs");
 const { selectPythonExecutable } = require("./runtimeSelection.cjs");
+const { createLiveServiceManager } = require("./liveService.cjs");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 const desktopDir = path.resolve(__dirname, "..");
@@ -17,6 +18,11 @@ let mainWindow = null;
 let activeWorker = null;
 let activeMediaScan = null;
 const outputAccess = createOutputAccessStore();
+const liveService = createLiveServiceManager({
+  onLog: (message) => {
+    if (message) mainWindow?.webContents.send("transcription:event", { type: "log", payload: `[live] ${message}` });
+  }
+});
 
 function pythonExecutable() {
   return selectPythonExecutable(rootDir, fs.existsSync);
@@ -198,6 +204,10 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+app.on("before-quit", () => {
+  liveService.shutdown();
+});
+
 ipcMain.handle("dialog:addFiles", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile", "multiSelections"],
@@ -243,6 +253,19 @@ ipcMain.handle("app:runtimeInfo", async () => {
   return runWorker("runtime-info");
 });
 
+ipcMain.handle("live:initialize", async () => liveService.initialize());
+
+ipcMain.handle("live:listRuns", async () => liveService.listRuns());
+
+ipcMain.handle("live:start", async (_event, payload) => {
+  if (activeWorker) {
+    throw new Error("File transcription is running. Stop it before starting live transcription.");
+  }
+  return liveService.createRun(payload);
+});
+
+ipcMain.handle("live:stop", async (_event, runId) => liveService.stopRun(runId));
+
 ipcMain.handle("window:minimize", () => {
   mainWindow?.minimize();
 });
@@ -286,6 +309,9 @@ ipcMain.handle("transcription:start", async (_event, payload) => {
   const safePayload = validateTranscriptionPayload(payload);
   outputAccess.reset();
 
+  if (await liveService.hasActiveRuns()) {
+    throw new Error("Live transcription is running. Stop it first to avoid GPU memory conflicts.");
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(pythonExecutable(), [workerPath(), "transcribe"], {
       cwd: rootDir,
