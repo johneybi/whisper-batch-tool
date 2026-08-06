@@ -4,106 +4,58 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const {
   createOutputAccessStore,
-  isMediaFile,
   mediaExtensions,
   validatePathArray,
   validateTranscriptionPayload
 } = require("./ipcSecurity.cjs");
+const { discoverMediaPaths } = require("./mediaDiscovery.cjs");
+const { selectPythonExecutable } = require("./runtimeSelection.cjs");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 const desktopDir = path.resolve(__dirname, "..");
 let mainWindow = null;
 let activeWorker = null;
+let activeMediaScan = null;
 const outputAccess = createOutputAccessStore();
 
 function pythonExecutable() {
-  if (process.env.WHISPER_PYTHON) {
-    return process.env.WHISPER_PYTHON;
-  }
-
-  const candidates = process.platform === "win32"
-    ? [
-        path.join(rootDir, ".release-venv", "Scripts", "python.exe"),
-        path.join(rootDir, "venv", "Scripts", "python.exe"),
-        "C:\\whisper\\torch-env\\Scripts\\python.exe",
-      ]
-    : [
-        path.join(rootDir, ".release-venv", "bin", "python"),
-        path.join(rootDir, "venv", "bin", "python"),
-      ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return process.platform === "win32" ? "python" : "python3";
+  return selectPythonExecutable(rootDir, fs.existsSync);
 }
 
 function workerPath() {
   return path.join(desktopDir, "python", "worker.py");
 }
 
-function fileInfo(filePath) {
-  const stat = fs.statSync(filePath);
+function workerEnv() {
   return {
-    path: filePath,
-    name: path.basename(filePath),
-    format: path.extname(filePath).replace(".", "").toUpperCase() || "MEDIA",
-    sizeMb: Math.round(stat.size / (1024 * 1024))
+    ...process.env,
+    PYTHONUTF8: "1",
+    PYTHONIOENCODING: "utf-8"
   };
 }
 
-function discoverMediaFiles(folderPath, recursive) {
-  const results = [];
-  const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const entryPath = path.join(folderPath, entry.name);
-    if (entry.isFile() && isMediaFile(entryPath)) {
-      results.push(entryPath);
-    } else if (recursive && entry.isDirectory()) {
-      results.push(...discoverMediaFiles(entryPath, recursive));
-    }
-  }
-
-  return results.sort((left, right) => left.localeCompare(right));
+function isMediaPath(filePath) {
+  return mediaExtensions.has(path.extname(String(filePath)).replace(".", "").toLowerCase());
 }
 
-function resolveMediaPaths(inputPaths, recursive = true) {
-  const files = [];
-  const seen = new Set();
-  let skipped = 0;
-
-  for (const inputPath of inputPaths) {
-    try {
-      const resolved = path.resolve(inputPath);
-      const stat = fs.statSync(resolved);
-      const candidates = stat.isDirectory()
-        ? discoverMediaFiles(resolved, recursive)
-        : [resolved];
-
-      if (!candidates.length) {
-        skipped += 1;
-        continue;
-      }
-
-      for (const candidate of candidates) {
-        if (!isMediaFile(candidate)) {
-          skipped += 1;
-          continue;
-        }
-        if (seen.has(candidate)) continue;
-        seen.add(candidate);
-        files.push(fileInfo(candidate));
-      }
-    } catch {
-      skipped += 1;
+async function resolveMediaPaths(inputPaths, recursive = true) {
+  if (activeMediaScan) {
+    activeMediaScan.abort();
+  }
+  const controller = new AbortController();
+  activeMediaScan = controller;
+  try {
+    return await discoverMediaPaths(inputPaths, {
+      fsModule: fs,
+      isMediaFile: isMediaPath,
+      recursive,
+      signal: controller.signal
+    });
+  } finally {
+    if (activeMediaScan === controller) {
+      activeMediaScan = null;
     }
   }
-
-  return { files, skipped };
 }
 
 const mediaDialogExtensions = Array.from(mediaExtensions).sort();
@@ -189,6 +141,7 @@ function runWorker(command, payload = {}, onEvent) {
   return new Promise((resolve, reject) => {
     const child = spawn(pythonExecutable(), [workerPath(), command], {
       cwd: rootDir,
+      env: workerEnv(),
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -253,7 +206,8 @@ ipcMain.handle("dialog:addFiles", async () => {
       { name: "All files", extensions: ["*"] }
     ]
   });
-  return result.canceled ? [] : resolveMediaPaths(result.filePaths, false).files;
+  if (result.canceled) return [];
+  return (await resolveMediaPaths(result.filePaths, false)).files;
 });
 
 ipcMain.handle("dialog:addFolder", async (_event, recursive) => {
@@ -261,12 +215,17 @@ ipcMain.handle("dialog:addFolder", async (_event, recursive) => {
     properties: ["openDirectory"]
   });
   if (result.canceled || !result.filePaths[0]) return [];
-  return resolveMediaPaths([result.filePaths[0]], Boolean(recursive)).files;
+  return (await resolveMediaPaths([result.filePaths[0]], Boolean(recursive))).files;
 });
 
 ipcMain.handle("files:resolveDroppedPaths", async (_event, paths, recursive) => {
   const inputPaths = validatePathArray(paths, "paths", { allowEmpty: true });
   return resolveMediaPaths(inputPaths, Boolean(recursive));
+});
+
+ipcMain.handle("files:cancelResolve", async () => {
+  activeMediaScan?.abort();
+  return true;
 });
 
 ipcMain.handle("dialog:selectOutputFolder", async () => {
@@ -330,6 +289,7 @@ ipcMain.handle("transcription:start", async (_event, payload) => {
   return new Promise((resolve, reject) => {
     const child = spawn(pythonExecutable(), [workerPath(), "transcribe"], {
       cwd: rootDir,
+      env: workerEnv(),
       stdio: ["pipe", "pipe", "pipe"]
     });
     activeWorker = child;

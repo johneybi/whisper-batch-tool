@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("whisperDesktop", {
   addFiles: () => ipcRenderer.invoke("dialog:addFiles"),
   addFolder: (recursive) => ipcRenderer.invoke("dialog:addFolder", recursive),
   resolveDroppedPaths: (paths, recursive) => ipcRenderer.invoke("files:resolveDroppedPaths", paths, recursive),
+  cancelFileScan: () => ipcRenderer.invoke("files:cancelResolve"),
   selectOutputFolder: () => ipcRenderer.invoke("dialog:selectOutputFolder"),
   selfTest: () => ipcRenderer.invoke("app:selfTest"),
   runtimeInfo: () => ipcRenderer.invoke("app:runtimeInfo"),

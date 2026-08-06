@@ -53,6 +53,7 @@ const mockDesktopApi = {
   runtimeInfo: async () => ({ label: "Electron 앱에서 실행하면 장치 상태를 확인합니다." }),
   startTranscription: async () => ({ ok: true }),
   cancelTranscription: async () => undefined,
+  cancelFileScan: async () => undefined,
   readTextFile: async () => "",
   openPath: async () => undefined,
   showItemInFolder: async () => undefined,
@@ -83,21 +84,21 @@ const presetItems = [
     label: "Balanced",
     description: "추천 · 속도와 정확도 균형",
     icon: Settings,
-    options: { model_name: "small", task: "transcribe", condition_on_previous_text: true }
+    options: { model_name: "small", task: "transcribe", condition_on_previous_text: false }
   },
   {
     id: "accurate",
     label: "Accurate",
     description: "긴 파일과 회의록에 적합",
     icon: CheckCircle2,
-    options: { model_name: "medium", task: "transcribe", condition_on_previous_text: true }
+    options: { model_name: "medium", task: "transcribe", condition_on_previous_text: false }
   },
   {
     id: "translate",
     label: "Translate to English",
     description: "Whisper 내장 영어 번역 전사",
     icon: Languages,
-    options: { model_name: "small", task: "translate", condition_on_previous_text: true }
+    options: { model_name: "small", task: "translate", condition_on_previous_text: false }
   }
 ];
 
@@ -188,6 +189,7 @@ function App() {
   const [activePreset, setActivePreset] = useState("balanced");
   const [searchQuery, setSearchQuery] = useState("");
   const [dropActive, setDropActive] = useState(false);
+  const [fileScan, setFileScan] = useState({ active: false, label: "" });
   const [logOpen, setLogOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -204,7 +206,7 @@ function App() {
     outputLocation: "source",
     output_dir: "",
     output_formats: defaultFormats,
-    condition_on_previous_text: true,
+    condition_on_previous_text: false,
     overwrite: false,
     recursive: true
   });
@@ -288,12 +290,31 @@ function App() {
         addLog(`${message.payload.file} 전사 시작`);
       } else if (message.type === "progress") {
         setProgress({ value: message.payload.value, total: message.payload.total });
+      } else if (message.type === "frame-progress") {
+        const frameTotal = Math.max(Number(message.payload.total) || 1, 1);
+        const frameCurrent = Math.max(0, Math.min(Number(message.payload.current) || 0, frameTotal));
+        const framePercent = Math.round((frameCurrent / frameTotal) * 100);
+        const fileIndex = Math.max(Number(message.payload.index) || 0, 0);
+        setProgress({
+          value: fileIndex + (frameCurrent / frameTotal),
+          total: Math.max(Number(message.payload.batchTotal) || 0, fileIndex + 1)
+        });
+        setFiles((previous) => previous.map((file, index) => (
+          (message.payload.path ? file.path === message.payload.path : index === message.payload.index)
+            ? { ...file, status: "running", frameProgress: framePercent }
+            : file
+        )));
       } else if (message.type === "file-state") {
+        if (message.payload.state === "failed") {
+          setSelectedFilePath(message.payload.path || "");
+          addLog(`${filenameOf(message.payload.path || "File")} 실패: ${message.payload.error || "Unknown error"}`, "error");
+        }
         setFiles((previous) => previous.map((file, index) => (
           (message.payload.path ? file.path === message.payload.path : index === message.payload.index)
             ? {
                 ...file,
                 status: message.payload.state,
+                frameProgress: message.payload.state === "done" ? 100 : message.payload.state === "running" ? 0 : file.frameProgress,
                 outputFiles: message.payload.outputFiles ?? file.outputFiles,
                 previewText: message.payload.previewText ?? file.previewText,
                 elapsedSeconds: message.payload.elapsedSeconds ?? file.elapsedSeconds,
@@ -372,7 +393,8 @@ function App() {
       name: typeof item === "string" ? filenameOf(filePath) : item.name,
       format: typeof item === "string" ? extensionOf(filePath) : item.format,
       sizeMb: typeof item === "string" ? "" : item.sizeMb,
-      status: "waiting"
+      status: "waiting",
+      frameProgress: 0
     };
   }
 
@@ -402,13 +424,17 @@ function App() {
   }
 
   async function addFiles() {
+    setFileScan({ active: true, label: "Selecting files..." });
     const selected = await api.addFiles();
+    setFileScan({ active: false, label: "" });
     const added = appendFiles(selected);
     if (added.length) addLog(`${added.length}개 파일 추가`, "success");
   }
 
   async function addFolder() {
+    setFileScan({ active: true, label: "Scanning folder..." });
     const selected = await api.addFolder(options.recursive);
+    setFileScan({ active: false, label: "" });
     const added = appendFiles(selected);
     if (added.length) addLog(`${added.length}개 미디어 파일을 폴더에서 추가`, "success");
   }
@@ -433,13 +459,16 @@ function App() {
     }
 
     let resolved;
+    setFileScan({ active: true, label: "Resolving dropped files..." });
     try {
       resolved = await api.resolveDroppedPaths(droppedPaths, options.recursive);
     } catch (error) {
       addLog(`드롭한 파일을 읽지 못했습니다: ${error.message}`, "error");
+      setFileScan({ active: false, label: "" });
       return;
     }
 
+    setFileScan({ active: false, label: "" });
     const resolvedFiles = resolved.files ?? [];
     const skipped = resolved.skipped ?? 0;
 
@@ -450,6 +479,12 @@ function App() {
 
     const added = appendFiles(resolvedFiles);
     addLog(`${added.length}개 파일 추가${skipped ? ` · ${skipped}개 항목 제외` : ""} · 중복 파일은 자동 제외`, added.length ? "success" : "warn");
+  }
+
+  async function cancelFileScan() {
+    await api.cancelFileScan?.();
+    setFileScan({ active: false, label: "" });
+    addLog("File scan canceled.", "warn");
   }
 
   function handleDragEnter(event) {
@@ -501,7 +536,7 @@ function App() {
     if (!selectedFile) return;
     setFiles((previous) => previous.map((file) => (
       file.path === selectedFile.path
-        ? { ...file, status: "waiting", error: "", outputFiles: undefined, previewText: "", elapsedSeconds: undefined }
+        ? { ...file, status: "waiting", frameProgress: 0, error: "", outputFiles: undefined, previewText: "", elapsedSeconds: undefined }
         : file
     )));
     setActiveOutputPath("");
@@ -566,6 +601,7 @@ function App() {
         ? {
             ...file,
             status: "waiting",
+            frameProgress: 0,
             outputFiles: undefined,
             previewText: "",
             elapsedSeconds: undefined,
@@ -601,7 +637,16 @@ function App() {
         return;
       }
 
-      addLog("모든 작업이 완료되었습니다.", "success");
+      const failedFiles = result?.failed_files ?? [];
+      const successfulFiles = result?.successful_files ?? [];
+      if (failedFiles.length) {
+        const firstFailure = failedFiles[0];
+        const firstFailureName = filenameOf(firstFailure?.path || "File");
+        const firstFailureMessage = firstFailure?.error || "Unknown error";
+        addLog(`${failedFiles.length}개 파일 실패 · ${firstFailureName}: ${firstFailureMessage}`, successfulFiles.length ? "warn" : "error");
+      } else {
+        addLog("모든 작업이 완료되었습니다.", "success");
+      }
     } catch (error) {
       addLog(`전사 실패: ${error.message}`, "error");
     } finally {
@@ -751,8 +796,13 @@ function App() {
                       placeholder="Search files..."
                     />
                   </div>
-                  <Button className="h-11 px-5" onClick={addFiles}><Plus className="h-4 w-4" /> Add files</Button>
-                  <Button className="h-11 px-4" variant="outline" onClick={addFolder}><Plus className="h-4 w-4" /> Add folder</Button>
+                  <Button className="h-11 px-5" disabled={fileScan.active} onClick={addFiles}><Plus className="h-4 w-4" /> Add files</Button>
+                  <Button className="h-11 px-4" disabled={fileScan.active} variant="outline" onClick={addFolder}><Plus className="h-4 w-4" /> Add folder</Button>
+                  {fileScan.active && (
+                    <Button className="h-11 px-4" variant="outline" onClick={cancelFileScan}>
+                      <Square className="h-3.5 w-3.5" /> Cancel scan
+                    </Button>
+                  )}
                   <Button className="h-11 px-4" variant="outline" onClick={clearCompleted}><Trash2 className="h-4 w-4 text-destructive" /> Clear completed</Button>
                 </div>
               </div>
@@ -791,7 +841,7 @@ function App() {
                   </motion.div>
                   <div>
                     <p className="text-base font-bold">
-                      {dropActive ? "Release to add files" : "Drop audio or video files here"}
+                      {fileScan.active ? fileScan.label : dropActive ? "Release to add files" : "Drop audio or video files here"}
                     </p>
                     <p className={cn("mt-2 text-sm text-muted-foreground", dropActive && "font-medium text-primary")}>
                       {dropActive
@@ -799,6 +849,12 @@ function App() {
                         : "MP3, WAV, M4A, MP4, MOV, MKV 지원 · 미지원/중복 파일은 자동 제외"}
                     </p>
                   </div>
+                  {fileScan.active && (
+                    <div className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>{fileScan.label}</span>
+                    </div>
+                  )}
                   <Label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                     <Checkbox
                       checked={options.recursive}
@@ -833,7 +889,7 @@ function App() {
                   ) : visibleFiles.map((file, index) => {
                     const active = selectedFile?.path === file.path;
                     const fileIndex = files.findIndex((item) => item.path === file.path);
-                    const rowPercent = file.status === "done" ? 100 : file.status === "running" ? percent : 0;
+                    const rowPercent = file.status === "done" ? 100 : file.status === "running" ? file.frameProgress ?? 0 : 0;
 
                     return (
                       <div

@@ -27,9 +27,9 @@ Write-Host "Desktop: $DesktopDir"
 Write-Host "npm:     $($npmCommand.Source)"
 
 $pythonCandidates = @(
+    $(if ($env:WHISPER_CUDA_PYTHON) { $env:WHISPER_CUDA_PYTHON } else { "C:\whisper\torch-env\Scripts\python.exe" }),
     (Join-Path $ProjectRoot ".release-venv\Scripts\python.exe"),
-    (Join-Path $ProjectRoot "venv\Scripts\python.exe"),
-    "C:\whisper\torch-env\Scripts\python.exe"
+    (Join-Path $ProjectRoot "venv\Scripts\python.exe")
 )
 
 foreach ($candidate in $pythonCandidates) {

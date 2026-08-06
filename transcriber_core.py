@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,9 @@ VIDEO_EXTENSIONS = {
 SUPPORTED_EXTENSIONS = sorted(AUDIO_EXTENSIONS | VIDEO_EXTENSIONS)
 OUTPUT_FORMATS = ("txt", "srt", "vtt", "json", "tsv")
 MODEL_NAMES = ("tiny", "base", "small", "medium", "large", "large-v2", "large-v3")
+TASKS = ("transcribe", "translate")
+DEVICES = ("auto", "cpu", "cuda", "mps")
+LANGUAGE_PATTERN = re.compile(r"^[a-zA-Z]{2,3}([_-][a-zA-Z0-9]{2,8})?$")
 
 
 ProgressCallback = Callable[[str], None]
@@ -70,6 +74,104 @@ class TranscriptionOptions:
     device: str = "auto"
     temperature: float = 0.0
     condition_on_previous_text: bool = False
+    no_speech_threshold: Optional[float] = 0.6
+    logprob_threshold: Optional[float] = -1.0
+    compression_ratio_threshold: Optional[float] = 2.4
+
+
+def _validate_choice(value: object, field_name: str, allowed: tuple[str, ...]) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string.")
+    normalized = value.strip()
+    if normalized not in allowed:
+        raise ValueError(f"Unsupported {field_name}: {normalized}. Allowed values: {', '.join(allowed)}.")
+    return normalized
+
+
+def _validate_optional_number(value: object, field_name: str, minimum: Optional[float] = None) -> Optional[float]:
+    if value is None:
+        return None
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number or None.")
+    normalized = float(value)
+    if minimum is not None and normalized < minimum:
+        raise ValueError(f"{field_name} must be {minimum} or greater.")
+    return normalized
+
+
+def validate_transcription_options(options: TranscriptionOptions) -> TranscriptionOptions:
+    model_name = _validate_choice(options.model_name, "model_name", MODEL_NAMES)
+    task = _validate_choice(options.task, "task", TASKS)
+    device = _validate_choice(options.device, "device", DEVICES)
+
+    if not isinstance(options.output_formats, list):
+        raise ValueError("output_formats must be a list.")
+    if not options.output_formats:
+        raise ValueError("Select at least one output format.")
+    output_formats: list[str] = []
+    for output_format in options.output_formats:
+        if not isinstance(output_format, str):
+            raise ValueError("output_formats entries must be strings.")
+        normalized = output_format.strip().lower()
+        if normalized not in OUTPUT_FORMATS:
+            raise ValueError(
+                f"Unsupported output format: {normalized}. Allowed values: {', '.join(OUTPUT_FORMATS)}."
+            )
+        if normalized not in output_formats:
+            output_formats.append(normalized)
+
+    if not isinstance(options.language, str):
+        raise ValueError("language must be a string.")
+    language = options.language.strip()
+    if language and not LANGUAGE_PATTERN.match(language):
+        raise ValueError("language must be a valid language code such as 'ko', 'en', or empty for auto detection.")
+
+    if options.output_dir is not None and not isinstance(options.output_dir, Path):
+        raise ValueError("output_dir must be a pathlib.Path or None.")
+    if not isinstance(options.overwrite, bool):
+        raise ValueError("overwrite must be a boolean.")
+    if not isinstance(options.condition_on_previous_text, bool):
+        raise ValueError("condition_on_previous_text must be a boolean.")
+    if not isinstance(options.temperature, (int, float)):
+        raise ValueError("temperature must be a number.")
+    if float(options.temperature) < 0:
+        raise ValueError("temperature must be zero or greater.")
+    no_speech_threshold = _validate_optional_number(options.no_speech_threshold, "no_speech_threshold", 0.0)
+    logprob_threshold = _validate_optional_number(options.logprob_threshold, "logprob_threshold")
+    compression_ratio_threshold = _validate_optional_number(
+        options.compression_ratio_threshold,
+        "compression_ratio_threshold",
+        0.0,
+    )
+
+    return TranscriptionOptions(
+        model_name=model_name,
+        language=language,
+        task=task,
+        output_formats=output_formats,
+        output_dir=options.output_dir,
+        overwrite=options.overwrite,
+        device=device,
+        temperature=float(options.temperature),
+        condition_on_previous_text=options.condition_on_previous_text,
+        no_speech_threshold=no_speech_threshold,
+        logprob_threshold=logprob_threshold,
+        compression_ratio_threshold=compression_ratio_threshold,
+    )
+
+
+def _build_transcribe_kwargs(options: TranscriptionOptions, language: Optional[str], fp16: bool) -> dict:
+    return {
+        "language": language,
+        "task": options.task,
+        "fp16": fp16,
+        "verbose": False,
+        "temperature": options.temperature,
+        "condition_on_previous_text": options.condition_on_previous_text,
+        "no_speech_threshold": options.no_speech_threshold,
+        "logprob_threshold": options.logprob_threshold,
+        "compression_ratio_threshold": options.compression_ratio_threshold,
+    }
 
 
 @dataclass
@@ -328,6 +430,24 @@ def _output_path(source: Path, options: TranscriptionOptions, suffix: str) -> Pa
         index += 1
 
 
+def _temporary_output_path(path: Path) -> Path:
+    timestamp = int(time.time() * 1000)
+    return path.with_name(f".{path.name}.{timestamp}.{os.getpid()}.tmp")
+
+
+def _write_atomic(path: Path, writer: Callable[[Path], None]) -> None:
+    temp_path = _temporary_output_path(path)
+    try:
+        writer(temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        finally:
+            raise
+
+
 def _write_txt(path: Path, source: Path, result: dict, elapsed: float, model_name: str) -> None:
     text = (result.get("text") or "").strip()
     segments = result.get("segments") or []
@@ -397,21 +517,21 @@ def write_outputs(
     options: TranscriptionOptions,
     elapsed: float,
 ) -> list[Path]:
+    options = validate_transcription_options(options)
     output_files: list[Path] = []
-    requested = [fmt.lower() for fmt in options.output_formats if fmt.lower() in OUTPUT_FORMATS]
 
-    for output_format in requested:
+    for output_format in options.output_formats:
         path = _output_path(source, options, output_format)
         if output_format == "txt":
-            _write_txt(path, source, result, elapsed, options.model_name)
+            _write_atomic(path, lambda temp_path: _write_txt(temp_path, source, result, elapsed, options.model_name))
         elif output_format == "srt":
-            _write_srt(path, result)
+            _write_atomic(path, lambda temp_path: _write_srt(temp_path, result))
         elif output_format == "vtt":
-            _write_vtt(path, result)
+            _write_atomic(path, lambda temp_path: _write_vtt(temp_path, result))
         elif output_format == "json":
-            _write_json(path, source, result, elapsed, options.model_name)
+            _write_atomic(path, lambda temp_path: _write_json(temp_path, source, result, elapsed, options.model_name))
         elif output_format == "tsv":
-            _write_tsv(path, result)
+            _write_atomic(path, lambda temp_path: _write_tsv(temp_path, result))
         output_files.append(path)
 
     return output_files
@@ -434,6 +554,8 @@ class WhisperBatchEngine:
 
     def load_model(self, model_name: str, device: str = "auto") -> None:
         ensure_standard_streams()
+        model_name = _validate_choice(model_name, "model_name", MODEL_NAMES)
+        device = _validate_choice(device, "device", DEVICES)
         normalized_device = None if device == "auto" else device
         if self._model is not None and self._model_name == model_name and self._device == device:
             return
@@ -448,6 +570,7 @@ class WhisperBatchEngine:
 
     def transcribe_file(self, source: Path, options: TranscriptionOptions) -> TranscriptionResult:
         ensure_standard_streams()
+        options = validate_transcription_options(options)
         if not source.exists():
             raise FileNotFoundError(source)
 
@@ -463,18 +586,11 @@ class WhisperBatchEngine:
         fp16 = str(getattr(self._model, "device", "")).startswith("cuda")
         self._emit(f"Transcribing: {source.name}")
         started = time.time()
+        transcribe_kwargs = _build_transcribe_kwargs(options, language, fp16)
         with _capture_whisper_frame_progress(self._frame_progress):
             raw_result = self._model.transcribe(
                 str(source),
-                language=language,
-                task=options.task,
-                fp16=fp16,
-                verbose=False,
-                temperature=options.temperature,
-                condition_on_previous_text=options.condition_on_previous_text,
-                no_speech_threshold=0.6,
-                logprob_threshold=-1.0,
-                compression_ratio_threshold=2.4,
+                **transcribe_kwargs,
             )
         if self._frame_progress is not None:
             self._frame_progress(1, 1)

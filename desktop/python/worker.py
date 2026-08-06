@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -14,6 +20,7 @@ from transcriber_core import (  # noqa: E402
     check_ffmpeg,
     discover_media_files,
     get_torch_runtime_info,
+    validate_transcription_options,
 )
 
 
@@ -22,11 +29,25 @@ def emit(message_type: str, payload=None) -> None:
 
 
 def read_payload() -> dict:
-    raw = sys.stdin.read().strip()
+    raw = sys.stdin.buffer.read().decode("utf-8").strip()
     if not raw:
         return {}
     return json.loads(raw)
 
+
+def user_error_message(exc: Exception) -> str:
+    message = str(exc) or exc.__class__.__name__
+    if isinstance(exc, FileNotFoundError):
+        return f"File not found: {message}"
+    if "Failed to load audio:" not in message:
+        return message
+
+    lines = [line.strip() for line in message.replace("\r", "\n").split("\n") if line.strip()]
+    for prefix in ("Error opening input:", "Error opening input file", "Error opening input files:"):
+        for line in reversed(lines):
+            if line.startswith(prefix):
+                return f"Failed to load audio: {line}"
+    return "Failed to load audio. The file may be corrupt or unsupported by ffmpeg."
 
 def command_self_test() -> None:
     ok, detail = check_ffmpeg()
@@ -75,33 +96,66 @@ def command_transcribe() -> None:
     files = [Path(item) for item in payload.get("files", [])]
     options_payload = payload.get("options", {})
     output_dir = options_payload.get("output_dir")
-    options = TranscriptionOptions(
-        model_name=options_payload.get("model_name", "small"),
-        language=options_payload.get("language", "ko"),
-        task=options_payload.get("task", "transcribe"),
-        output_formats=options_payload.get("output_formats", ["txt", "srt"]),
-        output_dir=Path(output_dir) if output_dir else None,
-        overwrite=bool(options_payload.get("overwrite", False)),
-        device=options_payload.get("device", "auto"),
-        condition_on_previous_text=bool(options_payload.get("condition_on_previous_text", False)),
-    )
+    try:
+        options = validate_transcription_options(
+            TranscriptionOptions(
+                model_name=options_payload.get("model_name", "small"),
+                language=options_payload.get("language", "ko"),
+                task=options_payload.get("task", "transcribe"),
+                output_formats=options_payload.get("output_formats", ["txt", "srt"]),
+                output_dir=Path(output_dir) if output_dir else None,
+                overwrite=options_payload.get("overwrite", False),
+                device=options_payload.get("device", "auto"),
+                condition_on_previous_text=options_payload.get("condition_on_previous_text", False),
+            )
+        )
+    except ValueError as exc:
+        message = f"Invalid transcription options: {exc}"
+        emit("error", message)
+        print(message, file=sys.stderr)
+        raise SystemExit(2)
 
     output_files: list[str] = []
-    engine = WhisperBatchEngine(progress=lambda message: emit("log", message))
+    successful_files: list[str] = []
+    failed_files: list[dict] = []
+    active_file = {"index": -1, "path": ""}
+
+    def emit_frame_progress(current: int, total_frames: int) -> None:
+        emit(
+            "frame-progress",
+            {
+                "index": active_file["index"],
+                "path": active_file["path"],
+                "current": current,
+                "total": total_frames,
+                "batchTotal": total,
+            },
+        )
+
+    engine = WhisperBatchEngine(
+        progress=lambda message: emit("log", message),
+        frame_progress=emit_frame_progress,
+    )
     total = len(files)
     for index, path in enumerate(files, start=1):
+        active_file["index"] = index - 1
+        active_file["path"] = str(path)
         emit("file-state", {"index": index - 1, "path": str(path), "state": "running"})
         emit("status", {"index": index, "total": total, "file": path.name, "path": str(path)})
         try:
             result = engine.transcribe_file(path, options)
         except Exception as exc:
-            emit("file-state", {"index": index - 1, "path": str(path), "state": "failed", "error": str(exc)})
-            emit("log", f"Failed: {path.name}: {exc}")
+            error_message = user_error_message(exc)
+            traceback.print_exc(file=sys.stderr)
+            emit("file-state", {"index": index - 1, "path": str(path), "state": "failed", "error": error_message})
+            emit("log", f"Failed: {path.name}: {error_message}")
+            failed_files.append({"path": str(path), "error": error_message})
             emit("progress", {"value": index, "total": total})
             continue
 
         result_output_files = [str(item) for item in result.output_files]
         output_files.extend(result_output_files)
+        successful_files.append(str(path))
         emit(
             "file-state",
             {
@@ -115,7 +169,19 @@ def command_transcribe() -> None:
         )
         emit("progress", {"value": index, "total": total})
 
-    emit("done", {"output_files": output_files})
+    emit(
+        "done",
+        {
+            "output_files": output_files,
+            "successful_files": successful_files,
+            "failed_files": failed_files,
+            "summary": {
+                "total": total,
+                "succeeded": len(successful_files),
+                "failed": len(failed_files),
+            },
+        },
+    )
 
 
 def main() -> None:
