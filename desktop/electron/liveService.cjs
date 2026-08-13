@@ -7,10 +7,10 @@ const ACTIVE_RUN_STATES = new Set([
   "queued", "probing", "capturing", "transcribing", "draining", "reconnecting", "stopping"
 ]);
 
-function resolveLiveProjectRoot(env = process.env, platform = process.platform) {
-  const configured = String(env.AUTO_NEWS_SCRIPTER_ROOT || "").trim();
+function resolveLiveProjectRoot(env = process.env) {
+  const configured = String(env.WHISPER_LIVE_ENGINE_ROOT || "").trim();
   if (configured) return path.resolve(configured);
-  return platform === "win32" ? "E:\\auto-news-scripter" : "";
+  return path.resolve(__dirname, "..", "..", "services", "live-engine");
 }
 
 function validateLiveRunPayload(value) {
@@ -58,8 +58,8 @@ function createLiveServiceManager({
 
   function projectPaths() {
     return {
-      python: projectRoot ? path.join(projectRoot, ".venv", "Scripts", "python.exe") : "",
-      appRoot: projectRoot ? path.join(projectRoot, "services", "app") : "",
+      python: String(env.WHISPER_LIVE_PYTHON || "").trim() || (projectRoot ? path.join(projectRoot, ".venv", "Scripts", "python.exe") : ""),
+      appRoot: projectRoot ? path.join(projectRoot, "app") : "",
       data: projectRoot ? path.join(projectRoot, "data") : "",
       knowledge: projectRoot ? path.join(projectRoot, "data", "knowledge") : "",
       models: projectRoot ? path.join(projectRoot, "data", "models") : ""
@@ -100,8 +100,8 @@ function createLiveServiceManager({
 
   function readiness() {
     const paths = projectPaths();
-    if (!projectRoot) return { ready: false, detail: "AUTO_NEWS_SCRIPTER_ROOT is not configured.", projectRoot };
-    if (!existsSync(paths.python)) return { ready: false, detail: `Live runtime is missing: ${paths.python}`, projectRoot };
+    if (!projectRoot) return { ready: false, detail: "Live engine root is not configured.", projectRoot };
+    if (!existsSync(paths.python)) return { ready: false, detail: `Live runtime is missing: ${paths.python}. Run services\\live-engine\\setup-live-engine.bat first.`, projectRoot };
     if (!existsSync(paths.appRoot)) return { ready: false, detail: `Live service source is missing: ${paths.appRoot}`, projectRoot };
     return { ready: true, detail: "Live transcription runtime is ready.", projectRoot };
   }

@@ -7,12 +7,12 @@ const {
   validateLiveRunPayload
 } = require("./liveService.cjs");
 
-test("live project root prefers explicit configuration", () => {
+test("live engine root is internal by default and supports an explicit override", () => {
   assert.equal(
-    resolveLiveProjectRoot({ AUTO_NEWS_SCRIPTER_ROOT: "C:\\tools\\live" }, "win32"),
+    resolveLiveProjectRoot({ WHISPER_LIVE_ENGINE_ROOT: "C:\\tools\\live" }),
     "C:\\tools\\live"
   );
-  assert.equal(resolveLiveProjectRoot({}, "win32"), "E:\\auto-news-scripter");
+  assert.match(resolveLiveProjectRoot({}), /services[\\/]live-engine$/);
 });
 
 test("live payload validation accepts supported YouTube URLs", () => {
@@ -41,7 +41,7 @@ test("live payload validation rejects non-YouTube sources and unsafe chunks", ()
 
 test("readiness explains a missing native runtime", () => {
   const manager = createLiveServiceManager({
-    env: { AUTO_NEWS_SCRIPTER_ROOT: "C:\\missing-live" },
+    env: { WHISPER_LIVE_ENGINE_ROOT: "C:\\missing-live" },
     platform: "win32",
     existsSync: () => false,
     fetchImpl: async () => { throw new Error("offline"); }
