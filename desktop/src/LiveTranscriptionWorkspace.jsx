@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Loader2, Play, Radio, RefreshCw, Square, Wifi } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,18 +40,45 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
   const [startFromBeginning, setStartFromBeginning] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const transcriptRefs = useRef(new Map());
+  const transcriptScrollState = useRef(new Map());
 
   const activeCount = useMemo(() => runs.filter((run) => ACTIVE_STATES.has(run.status)).length, [runs]);
+
+  const captureTranscriptScroll = useCallback(() => {
+    transcriptRefs.current.forEach((element, runId) => {
+      if (!element) return;
+      const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+      transcriptScrollState.current.set(runId, {
+        scrollTop: element.scrollTop,
+        followTail: distanceFromBottom <= 24
+      });
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    runs.forEach((run) => {
+      const element = transcriptRefs.current.get(run.id);
+      if (!element) return;
+      const previous = transcriptScrollState.current.get(run.id);
+      if (!previous || previous.followTail) {
+        element.scrollTop = element.scrollHeight;
+        return;
+      }
+      element.scrollTop = Math.min(previous.scrollTop, Math.max(0, element.scrollHeight - element.clientHeight));
+    });
+  }, [runs]);
 
   const refreshRuns = useCallback(async () => {
     try {
       const nextRuns = await api.listLiveRuns();
+      captureTranscriptScroll();
       setRuns(nextRuns);
       setError("");
     } catch (refreshError) {
       setError(refreshError.message);
     }
-  }, [api]);
+  }, [api, captureTranscriptScroll]);
 
   useEffect(() => {
     let disposed = false;
@@ -85,6 +112,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
         chunk_seconds: Number(chunkSeconds),
         start_from_beginning: startFromBeginning
       });
+      captureTranscriptScroll();
       setRuns((previous) => [run, ...previous.filter((item) => item.id !== run.id)]);
       setSourceUrl("");
       onLog?.(`실시간 전사 시작: ${run.title || run.source_url}`, "success");
@@ -99,6 +127,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
   async function stopRun(runId) {
     try {
       const run = await api.stopLiveTranscription(runId);
+      captureTranscriptScroll();
       setRuns((previous) => previous.map((item) => item.id === run.id ? run : item));
       onLog?.(`실시간 전사 중지 요청: ${run.title}`, "warn");
     } catch (stopError) {
@@ -200,7 +229,23 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                         <span>{run.chunk_count || 0}개 청크</span>
                       </div>
                     </div>
-                    <pre className="h-[340px] overflow-auto whitespace-pre-wrap bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100">{run.transcript || "첫 번째 청크를 기다리고 있습니다..."}</pre>
+                    <pre
+                      ref={(element) => {
+                        if (element) transcriptRefs.current.set(run.id, element);
+                        else transcriptRefs.current.delete(run.id);
+                      }}
+                      onScroll={(event) => {
+                        const element = event.currentTarget;
+                        const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+                        transcriptScrollState.current.set(run.id, {
+                          scrollTop: element.scrollTop,
+                          followTail: distanceFromBottom <= 24
+                        });
+                      }}
+                      className="h-[340px] overflow-auto whitespace-pre-wrap bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100"
+                    >
+                      {run.transcript || "첫 번째 청크를 기다리고 있습니다..."}
+                    </pre>
                   </article>
                 ))}
               </div>
