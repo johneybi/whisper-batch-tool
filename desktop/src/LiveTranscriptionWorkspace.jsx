@@ -32,6 +32,23 @@ function statusLabel(run) {
   }[run.status] || run.status;
 }
 
+function statusHint(run) {
+  if (run.transcript) return "전사문이 들어오고 있습니다. 아래 창에서 내용을 확인하세요.";
+  if (run.status === "capturing") return "오디오를 모으는 중입니다. 첫 청크 수집 후 전사문이 표시됩니다.";
+  if (run.status === "transcribing") return "수집한 오디오를 Whisper가 전사하고 있습니다.";
+  if (run.status === "probing") return "YouTube 방송 상태와 오디오 소스를 확인하고 있습니다.";
+  if (run.status === "queued") return "다른 전사 작업이 끝날 때까지 대기 중입니다.";
+  if (run.status === "reconnecting") return "방송 연결을 다시 시도하고 있습니다.";
+  return statusLabel(run);
+}
+
+function updatedAtLabel(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
+}
+
 export function LiveTranscriptionWorkspace({ api, onLog }) {
   const [service, setService] = useState({ ready: false, running: false, loading: true, detail: "실시간 엔진 시작 중..." });
   const [runs, setRuns] = useState([]);
@@ -220,13 +237,21 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                   <article className="overflow-hidden rounded-xl border bg-card" key={run.id}>
                     <div className="border-b p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <Badge variant={run.status === "failed" ? "destructive" : ACTIVE_STATES.has(run.status) ? "success" : "secondary"}>{statusLabel(run)}</Badge>
+                        <Badge variant={run.status === "failed" ? "destructive" : ACTIVE_STATES.has(run.status) ? "success" : "secondary"}>
+                          {ACTIVE_STATES.has(run.status) && <Loader2 className="h-3 w-3 animate-spin" />}
+                          {statusLabel(run)}
+                        </Badge>
                         {!TERMINAL_STATES.has(run.status) && <Button size="sm" variant="outline" onClick={() => stopRun(run.id)}><Square className="h-3.5 w-3.5" /> 중지</Button>}
                       </div>
                       <h3 className="mt-3 truncate font-bold" title={run.title}>{run.title || "YouTube live"}</h3>
-                      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> {durationLabel(run.captured_seconds)}</span>
-                        <span>{run.chunk_count || 0}개 청크</span>
+                      <div className={cn("mt-3 rounded-lg border p-3", run.status === "failed" ? "border-destructive/30 bg-destructive/5" : "border-primary/20 bg-primary/5")} aria-live="polite">
+                        <p className="font-semibold">{statusLabel(run)}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{statusHint(run)}</p>
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                          <div><p className="text-muted-foreground">수집</p><p className="mt-1 font-semibold">{durationLabel(run.captured_seconds)}</p></div>
+                          <div><p className="text-muted-foreground">완료 청크</p><p className="mt-1 font-semibold">{run.chunk_count || 0}개</p></div>
+                          <div><p className="text-muted-foreground">마지막 갱신</p><p className="mt-1 font-semibold">{updatedAtLabel(run.updated_at)}</p></div>
+                        </div>
                       </div>
                     </div>
                     <pre
