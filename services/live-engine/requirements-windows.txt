@@ -1,0 +1,12 @@
+--extra-index-url https://pypi.ngc.nvidia.com
+
+faster-whisper==1.2.1
+ctranslate2==4.8.1
+streamlink==8.2.1
+yt-dlp==2026.6.9
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+nvidia-cuda-runtime-cu12
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
