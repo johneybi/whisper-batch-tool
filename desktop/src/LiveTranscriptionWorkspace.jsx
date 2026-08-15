@@ -42,6 +42,52 @@ function statusHint(run) {
   return statusLabel(run);
 }
 
+function timestampToSeconds(value) {
+  const parts = String(value || "").split(":").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return 0;
+  return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+}
+
+function transcriptTimeLabel(seconds) {
+  const safe = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(safe / 60);
+  const remaining = safe % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
+}
+
+function buildTranscriptBlocks(transcript) {
+  const blocks = [];
+  let current = null;
+  let lastTimestampMinute = -1;
+
+  String(transcript || "").split("\n").forEach((line, index) => {
+    const matched = line.match(/^\[(\d{2}:\d{2}:\d{2})\s*-\s*(\d{2}:\d{2}:\d{2})\]\s*(.+)$/);
+    if (!matched) return;
+    const startSeconds = timestampToSeconds(matched[1]);
+    const endSeconds = timestampToSeconds(matched[2]);
+    const text = matched[3].trim();
+    if (!text) return;
+    const minute = Math.floor(startSeconds / 60);
+    const needsNewBlock = !current || minute !== current.minute || (current.text.length + text.length > 140);
+    if (needsNewBlock) {
+      current = {
+        id: `${startSeconds}-${index}`,
+        startSeconds,
+        endSeconds,
+        minute,
+        showTimestamp: minute !== lastTimestampMinute,
+        text
+      };
+      blocks.push(current);
+      lastTimestampMinute = minute;
+      return;
+    }
+    current.text = `${current.text} ${text}`;
+    current.endSeconds = endSeconds;
+  });
+
+  return blocks;
+}
 function updatedAtLabel(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -53,12 +99,15 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
   const [service, setService] = useState({ ready: false, running: false, loading: true, detail: "실시간 엔진 시작 중..." });
   const [runs, setRuns] = useState([]);
   const [sourceUrl, setSourceUrl] = useState("");
-  const [chunkSeconds, setChunkSeconds] = useState(30);
+  const [chunkSeconds, setChunkSeconds] = useState(10);
   const [startFromBeginning, setStartFromBeginning] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const transcriptRefs = useRef(new Map());
   const transcriptScrollState = useRef(new Map());
+  const previousTranscriptByRun = useRef(new Map());
+  const incomingHighlightTimer = useRef(null);
+  const [recentBlockIds, setRecentBlockIds] = useState(new Set());
 
   const activeCount = useMemo(() => runs.filter((run) => ACTIVE_STATES.has(run.status)).length, [runs]);
 
@@ -86,16 +135,32 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
     });
   }, [runs]);
 
+  const markIncomingTranscriptBlocks = useCallback((nextRuns) => {
+    const incomingIds = [];
+    nextRuns.forEach((run) => {
+      const previousTranscript = previousTranscriptByRun.current.get(run.id);
+      const nextTranscript = String(run.transcript || "");
+      if (previousTranscript && nextTranscript.length > previousTranscript.length) {
+        buildTranscriptBlocks(nextTranscript).slice(-2).forEach((block) => incomingIds.push(block.id));
+      }
+      previousTranscriptByRun.current.set(run.id, nextTranscript);
+    });
+    if (incomingIds.length === 0) return;
+    setRecentBlockIds(new Set(incomingIds));
+    if (incomingHighlightTimer.current) window.clearTimeout(incomingHighlightTimer.current);
+    incomingHighlightTimer.current = window.setTimeout(() => setRecentBlockIds(new Set()), 2400);
+  }, []);
   const refreshRuns = useCallback(async () => {
     try {
       const nextRuns = await api.listLiveRuns();
+      markIncomingTranscriptBlocks(nextRuns);
       captureTranscriptScroll();
       setRuns(nextRuns);
       setError("");
     } catch (refreshError) {
       setError(refreshError.message);
     }
-  }, [api, captureTranscriptScroll]);
+  }, [api, captureTranscriptScroll, markIncomingTranscriptBlocks]);
 
   useEffect(() => {
     let disposed = false;
@@ -116,6 +181,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
     return () => {
       disposed = true;
       if (timer) window.clearInterval(timer);
+      if (incomingHighlightTimer.current) window.clearTimeout(incomingHighlightTimer.current);
     };
   }, [api, refreshRuns]);
 
@@ -196,6 +262,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                   value={chunkSeconds}
                   onChange={(event) => setChunkSeconds(Number(event.target.value))}
                 >
+                  <option value={10}>10초 · 빠른 갱신</option>
                   <option value={15}>15초 · 빠른 갱신</option>
                   <option value={30}>30초 · 권장</option>
                   <option value={60}>60초 · 긴 문맥</option>
@@ -254,7 +321,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                         </div>
                       </div>
                     </div>
-                    <pre
+                    <div
                       ref={(element) => {
                         if (element) transcriptRefs.current.set(run.id, element);
                         else transcriptRefs.current.delete(run.id);
@@ -267,10 +334,23 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                           followTail: distanceFromBottom <= 24
                         });
                       }}
-                      className="h-[340px] overflow-auto whitespace-pre-wrap bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100"
+                      className="h-[340px] overflow-auto bg-slate-950 px-5 py-4 text-slate-100"
                     >
-                      {run.transcript || "첫 번째 청크를 기다리고 있습니다..."}
-                    </pre>
+                      {buildTranscriptBlocks(run.transcript).length > 0 ? (
+                        <div className="space-y-5">
+                          {buildTranscriptBlocks(run.transcript).map((block) => (
+                            <section key={block.id} className={cn("transition-colors duration-700", recentBlockIds.has(block.id) && "rounded-md bg-primary/15 px-3 py-2")}>
+                              {block.showTimestamp && <time className="mb-2 block text-[11px] font-medium tracking-wide text-slate-500" title={`정확한 시작 시각 ${durationLabel(block.startSeconds)}`}>{transcriptTimeLabel(block.startSeconds)}</time>}
+                              <p className="text-[15px] leading-7 text-slate-100">{block.text}</p>
+                            </section>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid h-full place-items-center text-center text-sm leading-6 text-slate-400">
+                          <div><Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" /><p className="font-medium text-slate-200">{statusLabel(run)}</p><p className="mt-1 max-w-sm">{statusHint(run)}</p></div>
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>
