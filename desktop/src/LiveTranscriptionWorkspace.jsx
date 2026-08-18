@@ -457,20 +457,40 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                     </div>
                   )}
 
-                  <div className="space-y-1">
-                    <Label htmlFor="sched-max-minutes" className="text-xs">최대 녹화 시간</Label>
-                    <select
-                      id="sched-max-minutes"
-                      className="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-xs"
-                      value={maxMinutes}
-                      onChange={(event) => setMaxMinutes(Number(event.target.value))}
-                    >
-                      <option value={30}>30분 후 자동 종료</option>
-                      <option value={60}>60분 (1시간) · 권장</option>
-                      <option value={120}>120분 (2시간)</option>
-                      <option value={180}>180분 (3시간)</option>
-                      <option value={0}>무제한 (수동 정지까지)</option>
-                    </select>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="sched-max-minutes" className="text-xs">최대 녹화 시간 (분)</Label>
+                      <span className="text-[11px] text-muted-foreground">
+                        {Number(maxMinutes) > 0 ? `${maxMinutes}분 후 자동 종료` : "무제한 (수동 정지까지)"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="sched-max-minutes"
+                        type="number"
+                        min="0"
+                        max="1440"
+                        step="5"
+                        className="h-8 text-xs"
+                        value={maxMinutes}
+                        onChange={(e) => setMaxMinutes(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0))}
+                        placeholder="0 = 무제한"
+                      />
+                      <div className="flex shrink-0 gap-1">
+                        {[30, 60, 90, 120, 0].map((mins) => (
+                          <Button
+                            key={mins}
+                            type="button"
+                            size="sm"
+                            variant={Number(maxMinutes) === mins ? "default" : "outline"}
+                            className="h-8 px-2 text-[11px]"
+                            onClick={() => setMaxMinutes(mins)}
+                          >
+                            {mins === 0 ? "무제한" : `${mins}분`}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
