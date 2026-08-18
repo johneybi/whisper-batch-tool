@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Clock3, Copy, Loader2, Play, Radio, RefreshCw, Square, Wifi } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Clock3, Copy, Loader2, Play, Radio, RefreshCw, Square, Trash2, Wifi } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,30 @@ async function copyText(value) {
   textarea.remove();
   if (!copied) throw new Error("클립보드에 복사하지 못했습니다.");
 }
+function formatScheduleTime(isoString) {
+  if (!isoString) return "-";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function getDefaultScheduledDateTime() {
+  const now = new Date(Date.now() + 10 * 60 * 1000);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return {
+    date: `${year}-${month}-${day}`,
+    time: `${hours}:${minutes}`
+  };
+}
 function updatedAtLabel(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -119,6 +143,16 @@ function updatedAtLabel(value) {
 export function LiveTranscriptionWorkspace({ api, onLog }) {
   const [service, setService] = useState({ ready: false, running: false, loading: true, detail: "실시간 엔진 시작 중..." });
   const [runs, setRuns] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [activeTab, setActiveTab] = useState("live");
+
+  const [execMode, setExecMode] = useState("instant");
+  const [scheduleType, setScheduleType] = useState("time");
+  const defaultDt = useMemo(() => getDefaultScheduledDateTime(), []);
+  const [scheduledDate, setScheduledDate] = useState(defaultDt.date);
+  const [scheduledTime, setScheduledTime] = useState(defaultDt.time);
+  const [maxMinutes, setMaxMinutes] = useState(60);
+
   const [sourceUrl, setSourceUrl] = useState("");
   const [chunkSeconds, setChunkSeconds] = useState(10);
   const [startFromBeginning, setStartFromBeginning] = useState(true);
@@ -134,6 +168,7 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
   const copyFeedbackTimer = useRef(null);
 
   const activeCount = useMemo(() => runs.filter((run) => ACTIVE_STATES.has(run.status)).length, [runs]);
+  const pendingSchedulesCount = useMemo(() => schedules.filter((s) => s.status === "pending" || s.status === "running").length, [schedules]);
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
 
   const captureTranscriptScroll = useCallback(() => {
@@ -175,12 +210,16 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
     if (incomingHighlightTimer.current) window.clearTimeout(incomingHighlightTimer.current);
     incomingHighlightTimer.current = window.setTimeout(() => setRecentBlockIds(new Set()), 2400);
   }, []);
-  const refreshRuns = useCallback(async () => {
+  const refreshData = useCallback(async () => {
     try {
-      const nextRuns = await api.listLiveRuns();
+      const [nextRuns, nextSchedules] = await Promise.all([
+        api.listLiveRuns().catch(() => []),
+        api.listSchedules ? api.listSchedules().catch(() => []) : []
+      ]);
       markIncomingTranscriptBlocks(nextRuns);
       captureTranscriptScroll();
       setRuns(nextRuns);
+      setSchedules(nextSchedules);
       setError("");
     } catch (refreshError) {
       setError(refreshError.message);
@@ -195,8 +234,8 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
         if (disposed) return;
         setService({ ...state, loading: false, detail: state.detail || (state.running ? "실시간 엔진 준비 완료" : "실시간 엔진을 시작하지 못했습니다.") });
         if (!state.ready) return;
-        refreshRuns();
-        timer = window.setInterval(refreshRuns, 1500);
+        refreshData();
+        timer = window.setInterval(refreshData, 1500);
       })
       .catch((initializeError) => {
         if (disposed) return;
@@ -209,27 +248,64 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
       if (incomingHighlightTimer.current) window.clearTimeout(incomingHighlightTimer.current);
       if (copyFeedbackTimer.current) window.clearTimeout(copyFeedbackTimer.current);
     };
-  }, [api, refreshRuns]);
+  }, [api, refreshData]);
 
-  async function startRun(event) {
+  async function handleFormSubmit(event) {
     event.preventDefault();
+    if (!sourceUrl.trim()) return;
+
     setSubmitting(true);
     setError("");
-    try {
-      const run = await api.startLiveTranscription({
-        source_url: sourceUrl,
-        chunk_seconds: Number(chunkSeconds),
-        start_from_beginning: startFromBeginning
-      });
-      captureTranscriptScroll();
-      setRuns((previous) => [run, ...previous.filter((item) => item.id !== run.id)]);
-      setSourceUrl("");
-      onLog?.(`실시간 전사 시작: ${run.title || run.source_url}`, "success");
-    } catch (startError) {
-      setError(startError.message);
-      onLog?.(`실시간 전사 시작 실패: ${startError.message}`, "error");
-    } finally {
-      setSubmitting(false);
+
+    if (execMode === "instant") {
+      try {
+        const run = await api.startLiveTranscription({
+          source_url: sourceUrl,
+          chunk_seconds: Number(chunkSeconds),
+          start_from_beginning: startFromBeginning
+        });
+        captureTranscriptScroll();
+        setRuns((previous) => [run, ...previous.filter((item) => item.id !== run.id)]);
+        setSourceUrl("");
+        setActiveTab("live");
+        onLog?.(`실시간 전사 시작: ${run.title || run.source_url}`, "success");
+      } catch (startError) {
+        setError(startError.message);
+        onLog?.(`실시간 전사 시작 실패: ${startError.message}`, "error");
+      } finally {
+        setSubmitting(false);
+      }
+    } else {
+      try {
+        let scheduledAt = null;
+        if (scheduleType === "time") {
+          const dtString = `${scheduledDate}T${scheduledTime}:00`;
+          const parsed = new Date(dtString);
+          if (Number.isNaN(parsed.getTime())) {
+            throw new Error("올바른 예약 날짜와 시간을 입력해주세요.");
+          }
+          scheduledAt = parsed.toISOString();
+        }
+
+        const newSched = await api.createSchedule({
+          source_url: sourceUrl,
+          type: scheduleType,
+          scheduled_at: scheduledAt,
+          max_minutes: Number(maxMinutes),
+          chunk_seconds: Number(chunkSeconds),
+          start_from_beginning: startFromBeginning
+        });
+
+        setSchedules((prev) => [newSched, ...prev.filter((item) => item.id !== newSched.id)]);
+        setSourceUrl("");
+        setActiveTab("schedules");
+        onLog?.(`예약 등록 완료: ${newSched.source_url}`, "success");
+      } catch (schedError) {
+        setError(schedError.message);
+        onLog?.(`예약 등록 실패: ${schedError.message}`, "error");
+      } finally {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -244,6 +320,23 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
     }
   }
 
+  async function handleCancelSchedule(scheduleId) {
+    try {
+      await api.cancelSchedule(scheduleId);
+      refreshData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDeleteSchedule(scheduleId) {
+    try {
+      await api.deleteSchedule(scheduleId);
+      refreshData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
   async function copyRun(run) {
     try {
       await copyText(copyTextForRun(run));
@@ -273,8 +366,34 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
             </div>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-6">
-            <form className="space-y-5" onSubmit={startRun}>
+            <form className="space-y-4" onSubmit={handleFormSubmit}>
+              {/* Execution Mode Selector */}
               <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground">실행 방식</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={execMode === "instant" ? "default" : "outline"}
+                    className="h-9 text-xs font-semibold"
+                    onClick={() => setExecMode("instant")}
+                  >
+                    <Play className="mr-1.5 h-3.5 w-3.5" fill={execMode === "instant" ? "currentColor" : "none"} />
+                    즉시 시작
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={execMode === "schedule" ? "default" : "outline"}
+                    className="h-9 text-xs font-semibold"
+                    onClick={() => setExecMode("schedule")}
+                  >
+                    <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                    예약 모드
+                  </Button>
+                </div>
+              </div>
+
+              {/* YouTube URL */}
+              <div className="space-y-1.5">
                 <Label htmlFor="live-source-url">YouTube URL</Label>
                 <Input
                   id="live-source-url"
@@ -285,30 +404,130 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
                   placeholder="https://www.youtube.com/watch?v=..."
                 />
               </div>
-              <fieldset className="space-y-3">
-                <legend className="text-sm font-semibold">시작 위치</legend>
+
+              {/* Schedule Specific Options */}
+              {execMode === "schedule" && (
+                <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">예약 유형</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={scheduleType === "time" ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        onClick={() => setScheduleType("time")}
+                      >
+                        지정 시간 시작
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={scheduleType === "upcoming" ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        onClick={() => setScheduleType("upcoming")}
+                      >
+                        방송 시작 시 감지
+                      </Button>
+                    </div>
+                  </div>
+
+                  {scheduleType === "time" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">시작 날짜</Label>
+                        <Input
+                          type="date"
+                          className="h-8 text-xs"
+                          value={scheduledDate}
+                          onChange={(e) => setScheduledDate(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">시작 시간</Label>
+                        <Input
+                          type="time"
+                          className="h-8 text-xs"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <Label htmlFor="sched-max-minutes" className="text-xs">최대 녹화 시간</Label>
+                    <select
+                      id="sched-max-minutes"
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-xs"
+                      value={maxMinutes}
+                      onChange={(event) => setMaxMinutes(Number(event.target.value))}
+                    >
+                      <option value={30}>30분 후 자동 종료</option>
+                      <option value={60}>60분 (1시간) · 권장</option>
+                      <option value={120}>120분 (2시간)</option>
+                      <option value={180}>180분 (3시간)</option>
+                      <option value={0}>무제한 (수동 정지까지)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Common Options */}
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold text-muted-foreground">시작 위치</legend>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button type="button" variant={startFromBeginning ? "default" : "outline"} onClick={() => setStartFromBeginning(true)}>처음부터</Button>
-                  <Button type="button" variant={!startFromBeginning ? "default" : "outline"} onClick={() => setStartFromBeginning(false)}>현재부터</Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={startFromBeginning ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => setStartFromBeginning(true)}
+                  >
+                    처음부터
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!startFromBeginning ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => setStartFromBeginning(false)}
+                  >
+                    현재부터
+                  </Button>
                 </div>
               </fieldset>
-              <div className="space-y-2">
-                <Label htmlFor="live-chunk-seconds">청크 길이</Label>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="live-chunk-seconds" className="text-xs">청크 길이</Label>
                 <select
                   id="live-chunk-seconds"
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs"
                   value={chunkSeconds}
                   onChange={(event) => setChunkSeconds(Number(event.target.value))}
                 >
                   <option value={10}>10초 · 빠른 갱신</option>
-                  <option value={15}>15초 · 빠른 갱신</option>
-                  <option value={30}>30초 · 권장</option>
+                  <option value={15}>15초 · 표준</option>
+                  <option value={30}>30초 · 안정적</option>
                   <option value={60}>60초 · 긴 문맥</option>
                 </select>
               </div>
-              <Button className="h-12 w-full text-base font-bold" disabled={!service.ready || submitting || !sourceUrl.trim()} type="submit">
-                {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" fill="currentColor" />}
-                전사 시작
+
+              <Button
+                className="h-11 w-full text-sm font-bold"
+                disabled={!service.ready || submitting || !sourceUrl.trim()}
+                type="submit"
+              >
+                {submitting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : execMode === "schedule" ? (
+                  <CalendarClock className="mr-2 h-4 w-4" />
+                ) : (
+                  <Play className="mr-2 h-4 w-4" fill="currentColor" />
+                )}
+                {execMode === "schedule" ? "예약 등록하기" : "전사 시작"}
               </Button>
             </form>
 
@@ -321,80 +540,306 @@ export function LiveTranscriptionWorkspace({ api, onLog }) {
           </CardContent>
         </Card>
 
+        {/* Right: Workspace (Live Runs / Scheduled Runs) */}
         <Card className="flex min-h-0 flex-col">
-          <CardHeader className="shrink-0">
+          <CardHeader className="shrink-0 pb-3">
             <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>방송 전사 현황</CardTitle>
-                <p className="mt-2 text-sm text-muted-foreground">{activeCount}개 실행 중 · 최대 2개 동시 캡처</p>
+              {/* Tab Selector */}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={activeTab === "live" ? "default" : "ghost"}
+                  className="h-8 text-xs font-semibold"
+                  onClick={() => { setActiveTab("live"); setSelectedRunId(null); }}
+                >
+                  <Radio className="mr-1.5 h-3.5 w-3.5" />
+                  방송 전사 현황 ({activeCount})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activeTab === "schedules" ? "default" : "ghost"}
+                  className="h-8 text-xs font-semibold"
+                  onClick={() => { setActiveTab("schedules"); setSelectedRunId(null); }}
+                >
+                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                  예약 목록 ({pendingSchedulesCount})
+                </Button>
               </div>
-              <Button size="sm" variant="outline" onClick={refreshRuns} disabled={!service.ready}><RefreshCw className="h-4 w-4" /> 새로고침</Button>
+              <Button size="sm" variant="outline" onClick={refreshData} disabled={!service.ready} className="h-8 text-xs">
+                <RefreshCw className="mr-1 h-3.5 w-3.5" /> 새로고침
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="min-h-0 flex-1 overflow-auto">
-            {selectedRun ? (
-              <div className="flex min-h-full flex-col gap-4">
-                <div className="flex items-center justify-between gap-3">
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedRunId(null)}><ArrowLeft className="h-4 w-4" /> 목록</Button>
-                  <Button size="sm" variant="outline" onClick={() => copyRun(selectedRun)} disabled={!selectedRun.transcript}>
-                    {copiedRunId === selectedRun.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    {copiedRunId === selectedRun.id ? "복사됨" : "제목 + 내용 복사"}
-                  </Button>
-                </div>
-                <div className="rounded-xl border bg-card p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Badge variant={selectedRun.status === "failed" ? "destructive" : ACTIVE_STATES.has(selectedRun.status) ? "success" : "secondary"}>{ACTIVE_STATES.has(selectedRun.status) && <Loader2 className="h-3 w-3 animate-spin" />}{statusLabel(selectedRun)}</Badge>
-                      <h2 className="mt-3 text-xl font-bold leading-8">{selectedRun.title || "YouTube live"}</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">{selectedRun.author || selectedRun.source_url}</p>
-                    </div>
-                    {!TERMINAL_STATES.has(selectedRun.status) && <Button size="sm" variant="outline" onClick={() => stopRun(selectedRun.id)}><Square className="h-3.5 w-3.5" /> 중지</Button>}
+            {activeTab === "live" ? (
+              /* Live Transcription Tab */
+              selectedRun ? (
+                /* Selected Single Run Detail View */
+                <div className="flex min-h-full flex-col gap-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedRunId(null)}>
+                      <ArrowLeft className="mr-1.5 h-4 w-4" /> 목록으로
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => copyRun(selectedRun)} disabled={!selectedRun.transcript}>
+                      {copiedRunId === selectedRun.id ? <Check className="mr-1.5 h-4 w-4 text-emerald-600" /> : <Copy className="mr-1.5 h-4 w-4" />}
+                      {copiedRunId === selectedRun.id ? "복사됨" : "제목 + 내용 복사"}
+                    </Button>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-muted/50 p-3 text-sm">
-                    <div><p className="text-xs text-muted-foreground">수집</p><p className="mt-1 font-semibold">{durationLabel(selectedRun.captured_seconds)}</p></div>
-                    <div><p className="text-xs text-muted-foreground">완료 청크</p><p className="mt-1 font-semibold">{selectedRun.chunk_count || 0}개</p></div>
-                    <div><p className="text-xs text-muted-foreground">마지막 갱신</p><p className="mt-1 font-semibold">{updatedAtLabel(selectedRun.updated_at)}</p></div>
-                  </div>
-                </div>
-                <div ref={(element) => { if (element) transcriptRefs.current.set(selectedRun.id, element); else transcriptRefs.current.delete(selectedRun.id); }} onScroll={(event) => { const element = event.currentTarget; const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight; transcriptScrollState.current.set(selectedRun.id, { scrollTop: element.scrollTop, followTail: distanceFromBottom <= 24 }); }} className="min-h-[420px] flex-1 overflow-auto rounded-xl bg-slate-950 px-8 py-7 text-slate-100">
-                  {buildTranscriptBlocks(selectedRun.transcript).length > 0 ? (
-                    <div className="mx-auto max-w-3xl space-y-6">
-                      {buildTranscriptBlocks(selectedRun.transcript).map((block) => (
-                        <section key={block.id} className={cn("transition-colors duration-700", recentBlockIds.has(block.id) && "rounded-md bg-primary/15 px-3 py-2")}>
-                          {block.showTimestamp && <time className="mb-2 block text-xs font-medium tracking-wide text-slate-500" title={`정확한 시작 시각 ${durationLabel(block.startSeconds)}`}>{transcriptTimeLabel(block.startSeconds)}</time>}
-                          <p className="text-base leading-8 text-slate-100">{block.text}</p>
-                        </section>
-                      ))}
-                    </div>
-                  ) : <div className="grid h-full min-h-[360px] place-items-center text-center text-sm leading-6 text-slate-400"><div><Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" /><p className="font-medium text-slate-200">{statusLabel(selectedRun)}</p><p className="mt-1 max-w-sm">{statusHint(selectedRun)}</p></div></div>}
-                </div>
-              </div>
-            ) : runs.length === 0 ? (
-              <div className="grid h-full place-items-center rounded-lg border border-dashed text-center text-muted-foreground"><div><Radio className="mx-auto mb-3 h-9 w-9" /><p className="font-semibold text-foreground">진행 중인 방송이 없습니다.</p><p className="mt-2 text-sm">왼쪽에 YouTube URL을 입력해 시작하세요.</p></div></div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {runs.map((run) => (
-                  <article className="cursor-pointer overflow-hidden rounded-xl border bg-card transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" key={run.id} role="button" tabIndex={0} onClick={() => setSelectedRunId(run.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRunId(run.id); }}>
-                    <div className="border-b p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <Badge variant={run.status === "failed" ? "destructive" : ACTIVE_STATES.has(run.status) ? "success" : "secondary"}>{ACTIVE_STATES.has(run.status) && <Loader2 className="h-3 w-3 animate-spin" />}{statusLabel(run)}</Badge>
-                        {!TERMINAL_STATES.has(run.status) && <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); stopRun(run.id); }}><Square className="h-3.5 w-3.5" /> 중지</Button>}
+                  <div className="rounded-xl border bg-card p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Badge variant={selectedRun.status === "failed" ? "destructive" : ACTIVE_STATES.has(selectedRun.status) ? "success" : "secondary"}>
+                          {ACTIVE_STATES.has(selectedRun.status) && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                          {statusLabel(selectedRun)}
+                        </Badge>
+                        <h2 className="mt-3 text-xl font-bold leading-8">{selectedRun.title || "YouTube live"}</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">{selectedRun.author || selectedRun.source_url}</p>
                       </div>
-                      <h3 className="mt-3 truncate font-bold" title={run.title}>{run.title || "YouTube live"}</h3>
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{run.transcript ? buildTranscriptBlocks(run.transcript).at(-1)?.text : statusHint(run)}</p>
-                      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground"><span>{run.chunk_count || 0}개 청크 · {durationLabel(run.captured_seconds)}</span><span className="font-medium text-primary">열기</span></div>
+                      {!TERMINAL_STATES.has(selectedRun.status) && (
+                        <Button size="sm" variant="outline" onClick={() => stopRun(selectedRun.id)}>
+                          <Square className="mr-1.5 h-3.5 w-3.5" /> 중지
+                        </Button>
+                      )}
                     </div>
-                  </article>
-                ))}
-              </div>
+                    <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-muted/50 p-3 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">수집 시간</p>
+                        <p className="mt-1 font-semibold">{durationLabel(selectedRun.captured_seconds)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">완료 청크</p>
+                        <p className="mt-1 font-semibold">{selectedRun.chunk_count || 0}개</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">마지막 갱신</p>
+                        <p className="mt-1 font-semibold">{updatedAtLabel(selectedRun.updated_at)}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    ref={(element) => {
+                      if (element) transcriptRefs.current.set(selectedRun.id, element);
+                      else transcriptRefs.current.delete(selectedRun.id);
+                    }}
+                    onScroll={(event) => {
+                      const element = event.currentTarget;
+                      const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+                      transcriptScrollState.current.set(selectedRun.id, {
+                        scrollTop: element.scrollTop,
+                        followTail: distanceFromBottom <= 24
+                      });
+                    }}
+                    className="min-h-[420px] flex-1 overflow-auto rounded-xl bg-slate-950 px-8 py-7 text-slate-100"
+                  >
+                    {buildTranscriptBlocks(selectedRun.transcript).length > 0 ? (
+                      <div className="mx-auto max-w-3xl space-y-6">
+                        {buildTranscriptBlocks(selectedRun.transcript).map((block) => (
+                          <section
+                            key={block.id}
+                            className={cn("transition-colors duration-700", recentBlockIds.has(block.id) && "rounded-md bg-primary/15 px-3 py-2")}
+                          >
+                            {block.showTimestamp && (
+                              <time
+                                className="mb-2 block text-xs font-medium tracking-wide text-slate-500"
+                                title={`정확한 시작 시각 ${durationLabel(block.startSeconds)}`}
+                              >
+                                {transcriptTimeLabel(block.startSeconds)}
+                              </time>
+                            )}
+                            <p className="text-base leading-8 text-slate-100">{block.text}</p>
+                          </section>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[360px] place-items-center text-center text-sm leading-6 text-slate-400">
+                        <div>
+                          <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" />
+                          <p className="font-medium text-slate-200">{statusLabel(selectedRun)}</p>
+                          <p className="mt-1 max-w-sm">{statusHint(selectedRun)}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : runs.length === 0 ? (
+                <div className="grid h-full place-items-center rounded-lg border border-dashed text-center text-muted-foreground">
+                  <div>
+                    <Radio className="mx-auto mb-3 h-9 w-9 opacity-50" />
+                    <p className="font-semibold text-foreground">진행 중인 방송이 없습니다.</p>
+                    <p className="mt-1 text-sm">왼쪽에 YouTube URL을 입력해 시작하거나 예약하세요.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {runs.map((run) => (
+                    <article
+                      className="cursor-pointer overflow-hidden rounded-xl border bg-card transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      key={run.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedRunId(run.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") setSelectedRunId(run.id);
+                      }}
+                    >
+                      <div className="border-b p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <Badge variant={run.status === "failed" ? "destructive" : ACTIVE_STATES.has(run.status) ? "success" : "secondary"}>
+                            {ACTIVE_STATES.has(run.status) && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                            {statusLabel(run)}
+                          </Badge>
+                          {!TERMINAL_STATES.has(run.status) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                stopRun(run.id);
+                              }}
+                            >
+                              <Square className="h-3.5 w-3.5" /> 중지
+                            </Button>
+                          )}
+                        </div>
+                        <h3 className="mt-3 truncate font-bold" title={run.title}>{run.title || "YouTube live"}</h3>
+                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                          {run.transcript ? buildTranscriptBlocks(run.transcript).at(-1)?.text : statusHint(run)}
+                        </p>
+                        <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                          <span>{run.chunk_count || 0}개 청크 · {durationLabel(run.captured_seconds)}</span>
+                          <span className="font-medium text-primary">클릭하여 전체 보기 →</span>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )
+            ) : (
+              /* Schedules Tab */
+              schedules.length === 0 ? (
+                <div className="grid h-full place-items-center rounded-lg border border-dashed text-center text-muted-foreground">
+                  <div>
+                    <CalendarClock className="mx-auto mb-3 h-9 w-9 opacity-50" />
+                    <p className="font-semibold text-foreground">등록된 예약이 없습니다.</p>
+                    <p className="mt-1 text-sm">왼쪽에서 '예약 모드'를 선택하여 새 예약을 등록하세요.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {schedules.map((schedule) => {
+                    const isPending = schedule.status === "pending";
+                    const isRunning = schedule.status === "running";
+                    return (
+                      <div key={schedule.id} className="flex items-center justify-between gap-4 rounded-xl border bg-card p-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                isRunning
+                                  ? "success"
+                                  : isPending
+                                  ? "outline"
+                                  : schedule.status === "completed"
+                                  ? "secondary"
+                                  : "destructive"
+                              }
+                            >
+                              {isRunning && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                              {isRunning
+                                ? "녹화 진행 중"
+                                : isPending
+                                ? "예약 대기"
+                                : schedule.status === "completed"
+                                ? "완료됨"
+                                : schedule.status === "cancelled"
+                                ? "취소됨"
+                                : "실패"}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {schedule.type === "time" ? (
+                                <span className="flex items-center gap-1 font-medium text-foreground">
+                                  <Clock3 className="h-3.5 w-3.5 text-primary" />
+                                  {formatScheduleTime(schedule.scheduled_at)} 시작
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 font-medium text-primary">
+                                  <Radio className="h-3.5 w-3.5" />
+                                  방송 시작 시 자동 감지
+                                </span>
+                              )}
+                            </span>
+                            {schedule.max_minutes > 0 && (
+                              <span className="text-xs text-muted-foreground">
+                                (최대 {schedule.max_minutes}분)
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="mt-2 truncate font-semibold text-sm" title={schedule.title || schedule.source_url}>
+                            {schedule.title || schedule.source_url}
+                          </h4>
+                          {schedule.error_message && (
+                            <p className="mt-1 text-xs text-destructive">{schedule.error_message}</p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isRunning && schedule.live_run_id && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-8 text-xs"
+                              onClick={() => {
+                                setActiveTab("live");
+                                setSelectedRunId(schedule.live_run_id);
+                              }}
+                            >
+                              전사 보기
+                            </Button>
+                          )}
+                          {isPending && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs text-amber-700 hover:bg-amber-50"
+                              onClick={() => handleCancelSchedule(schedule.id)}
+                            >
+                              <Square className="mr-1 h-3 w-3" /> 예약 취소
+                            </Button>
+                          )}
+                          {!isPending && !isRunning && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-xs text-muted-foreground hover:text-destructive"
+                              onClick={() => handleDeleteSchedule(schedule.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           </CardContent>
         </Card>
       </div>
 
       <footer className="studio-card-shadow flex min-h-0 items-center justify-between rounded-none border-x-0 border-b-0 border-t border-border bg-card px-5">
-        <div className="flex items-center gap-3 text-sm"><Radio className="h-4 w-4" /><span className="font-semibold">실시간 전사</span><span className="h-6 w-px bg-border" /><span className="text-muted-foreground">{activeCount ? `${activeCount}개 방송 처리 중` : "대기 중"}</span></div>
-        <span className="text-xs text-muted-foreground">{service.projectRoot ? `출력: ${service.projectRoot}\\data\\knowledge` : "실시간 출력 경로를 확인하세요."}</span>
+        <div className="flex items-center gap-3 text-sm">
+          <Radio className="h-4 w-4" />
+          <span className="font-semibold">실시간 전사</span>
+          <span className="h-6 w-px bg-border" />
+          <span className="text-muted-foreground">
+            {activeCount ? `${activeCount}개 방송 처리 중` : "대기 중"}
+            {pendingSchedulesCount > 0 && ` · 예약 ${pendingSchedulesCount}건`}
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {service.projectRoot ? `출력: ${service.projectRoot}\data\knowledge` : "실시간 출력 경로를 확인하세요."}
+        </span>
       </footer>
     </>
   );

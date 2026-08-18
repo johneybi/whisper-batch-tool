@@ -11,6 +11,7 @@ const {
 const { discoverMediaPaths } = require("./mediaDiscovery.cjs");
 const { selectPythonExecutable } = require("./runtimeSelection.cjs");
 const { createLiveServiceManager } = require("./liveService.cjs");
+const { createSchedulerManager } = require("./schedulerService.cjs");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 const desktopDir = path.resolve(__dirname, "..");
@@ -21,6 +22,14 @@ const outputAccess = createOutputAccessStore();
 const liveService = createLiveServiceManager({
   onLog: (message) => {
     if (message) mainWindow?.webContents.send("transcription:event", { type: "log", payload: `[live] ${message}` });
+  }
+});
+
+const scheduler = createSchedulerManager({
+  liveService,
+  powerSaveBlockerImpl: require("electron").powerSaveBlocker,
+  onLog: (message) => {
+    if (message) mainWindow?.webContents.send("transcription:event", { type: "log", payload: `[schedule] ${message}` });
   }
 });
 
@@ -194,6 +203,7 @@ function runWorker(command, payload = {}, onEvent) {
 
 app.whenReady().then(() => {
   createWindow();
+  scheduler.start();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -205,6 +215,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  scheduler.stop();
   liveService.shutdown();
 });
 
@@ -265,6 +276,14 @@ ipcMain.handle("live:start", async (_event, payload) => {
 });
 
 ipcMain.handle("live:stop", async (_event, runId) => liveService.stopRun(runId));
+
+ipcMain.handle("schedule:list", async () => scheduler.listSchedules());
+
+ipcMain.handle("schedule:create", async (_event, payload) => scheduler.createSchedule(payload));
+
+ipcMain.handle("schedule:cancel", async (_event, scheduleId) => scheduler.cancelSchedule(scheduleId));
+
+ipcMain.handle("schedule:delete", async (_event, scheduleId) => scheduler.deleteSchedule(scheduleId));
 
 ipcMain.handle("window:minimize", () => {
   mainWindow?.minimize();

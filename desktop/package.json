@@ -9,7 +9,7 @@
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test:security": "node --test electron/ipcSecurity.test.cjs electron/runtimeSelection.test.cjs electron/mediaDiscovery.test.cjs electron/liveService.test.cjs",
+    "test:security": "node --test electron/ipcSecurity.test.cjs electron/runtimeSelection.test.cjs electron/mediaDiscovery.test.cjs electron/liveService.test.cjs electron/schedulerService.test.cjs",
     "smoke:render": "cross-env WHISPER_DESKTOP_SMOKE_REPORT=../.tmp-smoke/desktop-smoke.json WHISPER_DESKTOP_SMOKE_SCREENSHOT=../.tmp-smoke/desktop-smoke.png electron ."
   },
   "dependencies": {
