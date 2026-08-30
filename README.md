@@ -32,7 +32,7 @@ Whisper를 직접 실행하려면 Python 패키지, FFmpeg, 모델 파일, CPU/G
 
 ## Current Target
 
-See [Product evolution](docs/PRODUCT_EVOLUTION.md) for the script → Tk → Electron → live-workspace decision timeline.
+See [Demo guide](docs/DEMO.md) for screenshot provenance and reproducible batch/live walkthroughs. See [Product evolution](docs/PRODUCT_EVOLUTION.md) for the script → Tk → Electron → live-workspace decision timeline.
 
 - 공식 앱: Electron/React/shadcn desktop app in `desktop/`
 - 공유 전사 코어: `transcriber_core.py`
@@ -199,7 +199,7 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 
 ## Important Files
 
-Documentation: [PRD](docs/PRD.md) · [Decisions](docs/DECISIONS.md) · [Product evolution](docs/PRODUCT_EVOLUTION.md) · [Contributing](CONTRIBUTING.md)
+Documentation: [PRD](docs/PRD.md) · [Decisions](docs/DECISIONS.md) · [Product evolution](docs/PRODUCT_EVOLUTION.md) · [Demo guide](docs/DEMO.md) · [Contributing](CONTRIBUTING.md)
 
 - `desktop/`: 공식 Electron/React 데스크톱 앱
 - `desktop/electron/main.cjs`: Electron main process와 IPC
