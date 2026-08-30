@@ -177,6 +177,8 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 
 ## Current Result and Limits
 
+License status: this public repository does not yet declare reuse terms; see [Issue #5](https://github.com/johneybi/whisper-batch-tool/issues/5) before redistributing code or artifacts.
+
 현재 저장소에는 Electron UI, Python worker 경계, 출력 포맷, 진행률/취소, 라이브 실행·중지·스케줄링·읽기 화면, IPC 보안 테스트가 구현되어 있습니다. 다만 다음 항목은 아직 새 공식 릴리스 계약으로 확정되지 않았습니다.
 
 - Electron용 Windows installer/portable ZIP 및 macOS DMG/ZIP의 최종 패키징
