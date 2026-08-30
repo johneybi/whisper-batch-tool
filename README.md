@@ -2,6 +2,11 @@
 
 > Local-first transcription workspace.
 
+![Whisper Studio desktop smoke render](docs/assets/desktop-smoke.png)
+
+`Private audio → Local transcription → TXT / SRT / VTT`  
+`Local-first · Batch processing · Focused live workspace · Windows/macOS development`
+
 Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
 
 이 저장소는 단순한 스크립트에서 로컬 전사 제품으로 확장해 온 과정을 보여 줍니다. 공식 제품 경로와 legacy 경로, 현재 가능한 검증과 아직 남은 릴리스 결정을 구분해 기록합니다.
@@ -26,6 +31,8 @@ Whisper를 직접 실행하려면 Python 패키지, FFmpeg, 모델 파일, CPU/G
 이 선택의 이유와 수용 기준은 [제품 결정 기록](docs/DECISIONS.md)과 [GitHub 이슈](https://github.com/johneybi/whisper-batch-tool/issues)에 남깁니다.
 
 ## Current Target
+
+See [Product evolution](docs/PRODUCT_EVOLUTION.md) for the script → Tk → Electron → live-workspace decision timeline.
 
 - 공식 앱: Electron/React/shadcn desktop app in `desktop/`
 - 공유 전사 코어: `transcriber_core.py`
@@ -182,6 +189,8 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 5. 필요성이 확인될 때만 화자 분리·고급 Whisper 파라미터·다국어 UI 확장
 
 ## Important Files
+
+Documentation: [PRD](docs/PRD.md) · [Decisions](docs/DECISIONS.md) · [Product evolution](docs/PRODUCT_EVOLUTION.md) · [Contributing](CONTRIBUTING.md)
 
 - `desktop/`: 공식 Electron/React 데스크톱 앱
 - `desktop/electron/main.cjs`: Electron main process와 IPC

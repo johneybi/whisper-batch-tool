@@ -1,8 +1,10 @@
-# Product Requirements Document: Whisper Batch Transcriber
+# Product Requirements Document: Whisper Batch Transcriber (v2)
+
+> Scope update: v1 started as batch transcription only. The focused live workspace is now an accepted product capability; see [DECISIONS.md](DECISIONS.md), [PRODUCT_EVOLUTION.md](PRODUCT_EVOLUTION.md), and GitHub [Issue #2](https://github.com/johneybi/whisper-batch-tool/issues/2).
 
 ## 1. Overview
 
-Whisper Batch Transcriber is an Electron/React desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper. The product is intended for non-technical users who need reliable transcription output without manually installing Python, pip packages, or ffmpeg.
+Whisper Batch Transcriber is an Electron/React desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper, with a focused live workspace for YouTube sources. The product is intended for non-technical users who need reliable local transcription output without manually managing Python, pip packages, or ffmpeg.
 
 The official product target is the Electron app under `desktop/`. The older Tk/PyInstaller app is retained only as a legacy release path. The application packages or prepares the runtime as OS-specific distributables and provides a simple file-based workflow: add files or folders, select transcription options, start processing, and open generated output files.
 
@@ -19,11 +21,12 @@ This product reduces that friction by providing a packaged GUI app with bundled 
 - Generate useful transcript and subtitle outputs without extra tools.
 - Provide Windows and macOS distributable builds.
 - Avoid requiring end users to install Python or ffmpeg manually.
+- Provide a bounded YouTube live workspace with readable, persisted transcript output.
 - Make release builds verifiable through simple smoke tests.
 
 ## 4. Non-Goals
 
-- Real-time transcription.
+- Unbounded real-time transcription or an unlimited stream dashboard. The focused live workspace is in scope with an explicit source, bounded chunking, a visible concurrency limit, and per-run stop controls.
 - Cloud transcription or server-side processing.
 - Collaborative transcript editing.
 - Speaker diarization.
@@ -63,6 +66,13 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 6. App processes files one by one.
 7. App writes transcript outputs.
 8. User opens the output folder and uses the generated files.
+
+### Live Workspace Journey
+
+1. User switches to the live workspace and enters a YouTube live or recorded-video URL.
+2. User selects the current live point or an explicit start point and chooses a bounded chunk interval.
+3. The app starts the local live engine, shows run state, and persists completed paragraphs to `data/knowledge`.
+4. User can stop one run without losing completed output; the session enforces the two-run concurrency limit.
 
 ## 8. Functional Requirements
 
@@ -109,6 +119,16 @@ Needs repeatable Windows/macOS builds and simple verification that the packaged 
 - The app logs major processing events.
 - Users can cancel the active batch. The Electron UI terminates the active worker and marks the in-progress file as canceled.
 - Failed processing displays an error message and restores the Start button.
+
+### Live Transcription Workspace
+
+- Users can submit a YouTube live or recorded-video URL from the live workspace.
+- Recorded sources can start from an explicit point; live sources can start from the current point.
+- The service processes bounded rolling chunks. The UI presets are 15/30/60 seconds; the service accepts 10–600 seconds.
+- A session supports at most two active captures, and each run has an independent stop action.
+- Paragraph-oriented transcript output is persisted under the configured live-engine `data/knowledge` directory.
+- The repository `services/live-engine` is the default runtime. A compatible external runtime may be selected with `WHISPER_LIVE_ENGINE_ROOT`.
+- Batch and live transcription must not silently compete for the same GPU runtime.
 
 ### Runtime Dependencies
 
