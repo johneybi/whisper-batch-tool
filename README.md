@@ -4,7 +4,7 @@
 
 ![Whisper Studio desktop smoke render](docs/assets/desktop-smoke.png)
 
-`Private audio → Local transcription → TXT / SRT / VTT`  
+`Private audio → Local transcription → TXT / SRT / VTT`<br>
 `Local-first · Batch processing · Focused live workspace · Windows/macOS development`
 
 Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
