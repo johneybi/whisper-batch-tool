@@ -1,0 +1,31 @@
+name: Bug report
+description: 재현 가능한 버그를 기록합니다.
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 단계
+      placeholder: 1. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과와 실제 결과
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 환경
+      description: OS, Python/Node 버전, 모델·장치·FFmpeg 정보를 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그와 추가 맥락
+      render: text
