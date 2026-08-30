@@ -128,6 +128,15 @@ Electron 패키징을 제품 릴리스로 완성하려면 다음 단계에서 Wi
 
 ## Supported Inputs
 
+## Release History
+
+이 저장소에는 실제 shipping 경로와 현재 전환 상태가 함께 남아 있습니다.
+
+- [V1.00 Windows legacy release](https://github.com/johneybi/whisper-batch-tool/releases/tag/release) — 기존 Tk/PyInstaller 설치 프로그램
+- [v1.1.0 macOS draft](https://github.com/johneybi/whisper-batch-tool/releases/tag/untagged-5fbc2a76bd6f86793fd8) — DMG/ZIP, unsigned/unnotarized; Electron 공식 패키징 전 단계
+
+새 공식 릴리스는 Electron artifact와 Python/Whisper/FFmpeg runtime 전달 정책이 검증된 뒤 `v2.0.0-beta.1`부터 시작합니다. 릴리스 노트에는 사용자 변화, 선택 이유, 설치, 검증, 알려진 한계를 함께 기록합니다.
+
 ffmpeg가 처리할 수 있는 일반적인 오디오/비디오 파일을 대상으로 합니다.
 
 - Audio: `mp3`, `wav`, `m4a`, `flac`, `aac`, `ogg`, `opus`, `wma`, `aiff`, `alac`, `amr`
