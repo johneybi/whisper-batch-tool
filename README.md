@@ -1,6 +1,29 @@
 # Whisper Batch Transcriber
 
+> Local-first transcription workspace.
+
 Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
+
+이 저장소는 단순한 스크립트에서 로컬 전사 제품으로 확장해 온 과정을 보여 줍니다. 공식 제품 경로와 legacy 경로, 현재 가능한 검증과 아직 남은 릴리스 결정을 구분해 기록합니다.
+
+[제품 결정 기록](docs/DECISIONS.md) · [기여/브랜치/커밋 규칙](CONTRIBUTING.md) · [배포 전략](docs/DISTRIBUTION.md) · [제품 요구사항](docs/PRD.md) · [GitHub 이슈](https://github.com/johneybi/whisper-batch-tool/issues)
+
+## 문제와 해결
+
+Whisper를 직접 실행하려면 Python 패키지, FFmpeg, 모델 파일, CPU/GPU 환경을 준비해야 합니다. 긴 녹음이나 여러 강의 파일을 처리할 때 파일 큐, 진행률, 취소, 자막 포맷 변환까지 직접 관리해야 하는 것도 반복 비용입니다.
+
+이 프로젝트는 그 흐름을 로컬 데스크톱 앱으로 묶습니다. 파일/폴더를 큐에 넣고 모델·언어·장치를 선택해 순차 처리하며 TXT/SRT/VTT/JSON/TSV를 생성합니다. 별도 라이브 워크스페이스에서는 YouTube URL을 청크 단위로 받아 누적 지식으로 저장합니다.
+
+## 제품 선택과 피봇
+
+초기 앱은 `whisper_gui.py` 기반 Tk/PyInstaller 경로였습니다. 작업 전환·진행률·취소·라이브 상태가 늘면서 UI와 릴리스 경계를 설명하기 어려워졌고, 다음처럼 방향을 좁혔습니다.
+
+1. `desktop/` Electron/React를 공식 제품 경험으로 삼고 새 기능을 우선 구현합니다.
+2. `transcriber_core.py`는 Electron worker와 legacy 앱이 공유해 검증된 로컬 처리와 기존 사용자의 재현성을 보존합니다.
+3. 라이브 전사는 무제한 대시보드가 아니라 최대 두 실행, 명시적 중지, 읽기 쉬운 누적 저장에 집중합니다.
+4. Electron 패키징과 runtime 전달 정책이 확정되기 전에는 legacy PyInstaller 산출물을 새 공식 릴리스로 포장하지 않습니다.
+
+이 선택의 이유와 수용 기준은 [제품 결정 기록](docs/DECISIONS.md)과 [GitHub 이슈](https://github.com/johneybi/whisper-batch-tool/issues)에 남깁니다.
 
 ## Current Target
 
@@ -10,6 +33,22 @@ Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현�
 - Legacy 앱: `whisper_gui.py`, `WhisperBatchTranscriber.spec`, 기존 PyInstaller release scripts
 
 GitHub Releases에는 앞으로 Electron 앱 산출물을 올리는 것을 기준으로 합니다. 기존 PyInstaller 산출물은 새 공식 릴리스로 자동 게시하지 않습니다.
+
+## Architecture
+
+```text
+Electron main ── preload/IPC ──> React renderer (`desktop/src`)
+     ├── Python worker ──> `transcriber_core.py` ──> Whisper + FFmpeg
+     └── live adapter ──> `services/live-engine` (선택적 로컬 서비스)
+
+Legacy compatibility: `whisper_gui.py` + PyInstaller scripts
+```
+
+- `desktop/electron/`: 창, IPC 보안, worker/라이브 서비스 수명주기, 스케줄링
+- `desktop/src/`: 파일 전사 화면과 라이브 전사 워크스페이스
+- `desktop/python/worker.py`: Electron과 Python 사이의 실행 경계와 환경 진단
+- `transcriber_core.py`: 모델 로드, 미디어 처리, 반복/환각 필터, 출력 writer
+- `services/live-engine/`: YouTube 청크 캡처와 누적 지식을 담당하는 선택적 런타임
 
 ## Development
 
@@ -29,21 +68,21 @@ Electron 앱은 `WHISPER_PYTHON`이 있으면 그 값을 사용합니다. 없으
 
 ## Live Transcription Integration
 
-Electron 앱은 상단에서 `일반 파일 전사`와 `실시간 전사` 두 작업으로 전환합니다. 실시간 전사는 검증된 Auto News Scripter 네이티브 런타임을 로컬 서비스로 시작하고 다음 기능을 제공합니다.
+Electron 앱은 상단에서 `일반 파일 전사`와 `실시간 전사` 두 작업으로 전환합니다. 실시간 전사는 저장소의 `services/live-engine`을 기본 로컬 서비스로 시작하고, 외부 호환 런타임은 환경 변수로 연결합니다.
 
 - YouTube 라이브 또는 일반 영상 URL 전사
 - 방송 시작점 또는 현재 라이브 지점 선택
 - 15/30/60초 연속 청크 전사
 - 최대 두 방송 동시 캡처와 실행별 중지
-- `E:\auto-news-scripter\data\knowledge`에 누적 전사 저장
+- `data/knowledge`에 누적 전사 저장
 
-Windows 기본 통합 경로는 `E:\auto-news-scripter`입니다. 다른 위치에서는 환경 변수로 지정합니다.
+다른 런타임 루트를 사용할 때는 다음처럼 지정합니다.
 
 ```powershell
-$env:AUTO_NEWS_SCRIPTER_ROOT = "D:\tools\auto-news-scripter"
+$env:WHISPER_LIVE_ENGINE_ROOT = "D:\tools\auto-news-scripter"
 ```
 
-해당 프로젝트의 `.venv`와 FFmpeg 설정이 먼저 준비되어 있어야 합니다. Electron은 라이브 서비스를 자동으로 시작하고 앱 종료 시 자신이 시작한 서비스만 종료합니다. 일반 파일 전사와 실시간 전사는 GPU 메모리 충돌을 피하기 위해 동시에 실행되지 않습니다.
+선택한 런타임의 `.venv`, `uvicorn`, FFmpeg, 모델 구성이 먼저 준비되어 있어야 합니다. Electron은 라이브 서비스를 자동으로 시작하고 앱 종료 시 자신이 시작한 서비스만 종료합니다. 일반 파일 전사와 실시간 전사는 GPU 메모리 충돌을 피하기 위해 동시에 실행되지 않습니다.
 
 ## Verification
 
@@ -119,6 +158,28 @@ chmod +x build_macos.sh scripts/build_release_macos.sh
 ```
 
 이 경로는 더 이상 새 공식 UI 배포 경로가 아닙니다.
+
+## Current Result and Limits
+
+현재 저장소에는 Electron UI, Python worker 경계, 출력 포맷, 진행률/취소, 라이브 실행·중지·스케줄링·읽기 화면, IPC 보안 테스트가 구현되어 있습니다. 다만 다음 항목은 아직 새 공식 릴리스 계약으로 확정되지 않았습니다.
+
+- Electron용 Windows installer/portable ZIP 및 macOS DMG/ZIP의 최종 패키징
+- Python/Whisper/FFmpeg를 최종 사용자에게 전달하는 runtime 정책
+- macOS Developer ID 서명과 notarization
+- 화자 분리, 협업 편집, 클라우드 전사
+- 취소 시 Whisper 프로세스를 우아하게 정리하는 동작
+
+실제 전사 품질은 모델·언어·오디오 품질·장치에 따라 달라지므로 특정 WER 수치를 제품 성과로 주장하지 않습니다. 먼저 실패 원인을 설명하고 완료된 파일을 보존하는 것이 이 저장소의 품질 방향입니다.
+
+## Roadmap
+
+우선순위는 [GitHub 이슈](https://github.com/johneybi/whisper-batch-tool/issues)로 추적합니다.
+
+1. Electron runtime/모델/FFmpeg 패키징 정책 확정 및 실제 배포물 검증
+2. 부분 실패·취소 후 완료된 파일을 보존하고 실패 항목만 재실행
+3. 모델/장치/파일 길이별 작은 벤치마크와 첫 실행 진단 화면
+4. macOS 서명·notarization 및 사용자용 설치 가이드
+5. 필요성이 확인될 때만 화자 분리·고급 Whisper 파라미터·다국어 UI 확장
 
 ## Important Files
 
