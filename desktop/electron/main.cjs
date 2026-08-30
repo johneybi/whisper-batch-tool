@@ -12,6 +12,7 @@ const { discoverMediaPaths } = require("./mediaDiscovery.cjs");
 const { selectPythonExecutable } = require("./runtimeSelection.cjs");
 const { createLiveServiceManager } = require("./liveService.cjs");
 const { createSchedulerManager } = require("./schedulerService.cjs");
+const { PRODUCT_NAME } = require("./productIdentity.cjs");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 const desktopDir = path.resolve(__dirname, "..");
@@ -92,7 +93,7 @@ function createWindow() {
       symbolColor: "#101828",
       height: 48
     } : true,
-    title: "Whisper Batch Transcriber",
+    title: PRODUCT_NAME,
     backgroundColor: "#f8fafc",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -202,6 +203,7 @@ function runWorker(command, payload = {}, onEvent) {
 }
 
 app.whenReady().then(() => {
+  app.setName(PRODUCT_NAME);
   createWindow();
   scheduler.start();
 
