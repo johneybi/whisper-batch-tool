@@ -1,10 +1,10 @@
-# Product Requirements Document: Whisper Batch Transcriber (v2)
+# Product Requirements Document: Whisper Studio (v2)
 
 > Scope update: v1 started as batch transcription only. The focused live workspace is now an accepted product capability; see [DECISIONS.md](DECISIONS.md), [PRODUCT_EVOLUTION.md](PRODUCT_EVOLUTION.md), and GitHub [Issue #2](https://github.com/johneybi/whisper-batch-tool/issues/2).
 
 ## 1. Overview
 
-Whisper Batch Transcriber is an Electron/React desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper, with a focused live workspace for YouTube sources. The product is intended for non-technical users who need reliable local transcription output without manually managing Python, pip packages, or ffmpeg.
+Whisper Studio is an Electron/React desktop GUI application that transcribes audio and video files in batches using OpenAI Whisper, with a focused live workspace for YouTube sources. The repository and legacy release path retain the former `Whisper Batch Transcriber` name for compatibility. The product is intended for non-technical users who need reliable local transcription output without manually managing Python, pip packages, or ffmpeg.
 
 The official product target is the Electron app under `desktop/`. The older Tk/PyInstaller app is retained only as a legacy release path. The application packages or prepares the runtime as OS-specific distributables and provides a simple file-based workflow: add files or folders, select transcription options, start processing, and open generated output files.
 

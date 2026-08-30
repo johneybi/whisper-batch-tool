@@ -1,5 +1,5 @@
 APP_NAME = "WhisperBatchTranscriber"
-APP_DISPLAY_NAME = "Whisper Batch Transcriber"
+APP_DISPLAY_NAME = "Whisper Studio"
 APP_VERSION = "1.1.3"
 APP_PUBLISHER = "Whisper Batch Tool"
 APP_URL = "https://github.com/johneybi/whisper-batch-tool"
