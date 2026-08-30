@@ -1,13 +1,14 @@
-# Whisper Batch Transcriber
+# Whisper Studio
 
-> Local-first transcription workspace.
+> Local-first transcription workspace from the `whisper-batch-tool` repository.
 
 ![Whisper Studio desktop smoke render](docs/assets/desktop-smoke.png)
 
 `Private audio → Local transcription → TXT / SRT / VTT`<br>
-`Local-first · Batch processing · Focused live workspace · Windows/macOS development`
+`Electron · React · Python · Local-first · Automated desktop smoke test`<br>
+`Python ↔ Electron worker/IPC boundary verified in CI`
 
-Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
+Whisper Studio는 Whisper 기반 오디오/비디오 배치 전사 데스크톱 앱입니다. 현재 저장소의 공식 제품 타깃은 `desktop/` 아래 Electron/React 앱입니다. 저장소 slug는 `whisper-batch-tool`이며, 기존 `whisper_gui.py` 기반 Tk/PyInstaller 앱은 이전 릴리스를 유지하기 위한 legacy 경로로 남겨 둡니다.
 
 이 저장소는 단순한 스크립트에서 로컬 전사 제품으로 확장해 온 과정을 보여 줍니다. 공식 제품 경로와 legacy 경로, 현재 가능한 검증과 아직 남은 릴리스 결정을 구분해 기록합니다.
 
@@ -35,6 +36,7 @@ Whisper를 직접 실행하려면 Python 패키지, FFmpeg, 모델 파일, CPU/G
 See [Demo guide](docs/DEMO.md) for screenshot provenance and reproducible batch/live walkthroughs. See [Product evolution](docs/PRODUCT_EVOLUTION.md) for the script → Tk → Electron → live-workspace decision timeline.
 
 - 공식 앱: Electron/React/shadcn desktop app in `desktop/`
+- 표시 제품명: `Whisper Studio` (`desktop/package.json`의 `name`은 npm 호환성을 위한 내부 식별자)
 - 공유 전사 코어: `transcriber_core.py`
 - Electron worker: `desktop/python/worker.py`
 - Legacy 앱: `whisper_gui.py`, `WhisperBatchTranscriber.spec`, 기존 PyInstaller release scripts
@@ -114,6 +116,8 @@ python desktop\python\worker.py self-test
 python desktop\python\worker.py runtime-info
 ```
 
+`desktop-ci.yml`은 위 worker self-test와 Electron IPC 보안 테스트를 같은 Windows job에서 실행해 Python ↔ Electron 경계를 자동 검증합니다.
+
 ## Distribution Direction
 
 배포 기준은 Electron 앱입니다.
@@ -126,8 +130,6 @@ python desktop\python\worker.py runtime-info
 
 Electron 패키징을 제품 릴리스로 완성하려면 다음 단계에서 Windows installer/portable ZIP, macOS DMG/ZIP, Python runtime 포함 정책을 확정해야 합니다.
 
-## Supported Inputs
-
 ## Release History
 
 이 저장소에는 실제 shipping 경로와 현재 전환 상태가 함께 남아 있습니다.
@@ -136,6 +138,8 @@ Electron 패키징을 제품 릴리스로 완성하려면 다음 단계에서 Wi
 - [v1.1.0 macOS draft](https://github.com/johneybi/whisper-batch-tool/releases/tag/untagged-5fbc2a76bd6f86793fd8) — DMG/ZIP, unsigned/unnotarized; Electron 공식 패키징 전 단계
 
 새 공식 릴리스는 Electron artifact와 Python/Whisper/FFmpeg runtime 전달 정책이 검증된 뒤 `v2.0.0-beta.1`부터 시작합니다. 릴리스 노트에는 사용자 변화, 선택 이유, 설치, 검증, 알려진 한계를 함께 기록합니다.
+
+## Supported Inputs
 
 ffmpeg가 처리할 수 있는 일반적인 오디오/비디오 파일을 대상으로 합니다.
 
